@@ -12,11 +12,19 @@ booth — including how many **VHS tapes** fit face-up on your tables.
   pop-up canopies.
 - **Tables like Lego.** Add **2′×4′**, **2′×6′**, and **3′×6′** tables, drag
   them, rotate them 90°, duplicate, or delete.
+- **Display props.** Drop in a **CRT TV** (2′×2′) or a **Vinyl display** crate
+  (2′×2′) and place them like everything else.
 - **VHS capacity math.** Tapes are packed in a solid mosaic (both orientations
   allowed) to maximize the count on each table. The total updates live.
+- **Front rack (optional, per table).** Toggle a leaned plywood display board
+  on a table's front edge that holds tapes standing face-out in 3 rows —
+  those tapes are counted and priced too.
+- **Revenue estimates.** Standard tapes priced at 3-for-$10 (typical) up to
+  $5 each; mark one table **“as marked”** for premium tapes ($7–$50, avg
+  adjustable). Shows a typical gross plus a low–high range.
 - **3D preview.** A wireframe pop-up tent (a post on each corner) with your
-  tables set up underneath exactly as laid out, covered in a colorful VHS
-  mosaic. Orbit, zoom, and pan.
+  tables, front racks, TVs, and vinyl crates set up exactly as laid out —
+  tables covered in a colorful VHS mosaic. Orbit, zoom, and pan.
 
 Layouts auto-save to your browser (localStorage).
 
@@ -36,9 +44,10 @@ area-max. Typical counts:
 
 ## Keyboard shortcuts
 
-- **R** — rotate the selected table 90°
-- **D** — duplicate the selected table
-- **Delete / Backspace** — remove the selected table
+- **R** — rotate the selected item 90°
+- **D** — duplicate the selected item
+- **F** — toggle the front rack (tables only)
+- **Delete / Backspace** — remove the selected item
 
 ## Development
 

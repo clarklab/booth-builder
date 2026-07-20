@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { IN_PER_FT, tableKindById } from '../domain/constants';
-import { packTable } from '../domain/packing';
-import { VHS } from '../domain/constants';
-import type { Layout, TableInstance } from '../domain/types';
+import {
+  IN_PER_FT,
+  RACK_LEAN_DEG,
+  TABLE_TOP_HEIGHT_IN,
+  itemKindById,
+} from '../domain/constants';
+import {
+  flatPackForTable,
+  isTable,
+  itemFootprintFt,
+  rackTapesForTable,
+} from '../domain/layout';
+import type { Layout, PlacedItem } from '../domain/types';
 
 const MARGIN_FT = 3; // working space around the tent footprint
-const SNAP_FT = 0.25;
+const SNAP_FT = 0.5; // chunkier grid snap
 
 type Props = {
   layout: Layout;
@@ -15,23 +24,9 @@ type Props = {
   onMove: (uid: string, xFt: number, yFt: number) => void;
 };
 
-/** Length (long side) and width (short side) in feet for a table. */
-function dims(table: TableInstance) {
-  const k = tableKindById(table.kindId);
-  return { lengthFt: k.lengthFt, widthFt: k.widthFt, color: k.color, label: k.label };
-}
-
-/** Half extents of the rotated bounding box, in feet. */
-function halfExtents(table: TableInstance) {
-  const { lengthFt, widthFt } = dims(table);
-  const rad = (table.rotation * Math.PI) / 180;
-  const c = Math.abs(Math.cos(rad));
-  const s = Math.abs(Math.sin(rad));
-  return {
-    hx: (lengthFt * c + widthFt * s) / 2,
-    hy: (lengthFt * s + widthFt * c) / 2,
-  };
-}
+// Depth (ground footprint) of a leaned front rack, in feet.
+const RACK_DEPTH_FT =
+  (TABLE_TOP_HEIGHT_IN / IN_PER_FT) * Math.tan((RACK_LEAN_DEG * Math.PI) / 180);
 
 export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -39,7 +34,6 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
 
   const workFt = layout.tentFt + MARGIN_FT * 2;
 
-  // Fit the working area to the available canvas space.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -58,24 +52,21 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
 
   const planPx = workFt * pxPerFt;
   const tentPx = layout.tentFt * pxPerFt;
-  const originPx = MARGIN_FT * pxPerFt; // tent front-left corner offset within plan
+  const originPx = MARGIN_FT * pxPerFt;
 
-  // Drag state kept in a ref to avoid re-render churn on every pointer move.
-  const drag = useRef<{
-    uid: string;
-    grabDxFt: number;
-    grabDyFt: number;
-  } | null>(null);
+  const drag = useRef<{ uid: string; grabDxFt: number; grabDyFt: number } | null>(null);
 
   const clampCenter = useCallback(
-    (table: TableInstance, xFt: number, yFt: number) => {
-      const { hx, hy } = halfExtents(table);
+    (item: PlacedItem, xFt: number, yFt: number) => {
+      const { w, h } = itemFootprintFt(item);
+      const hx = w / 2;
+      const hy = h / 2;
       const min = -MARGIN_FT;
-      const maxX = layout.tentFt + MARGIN_FT;
-      const maxY = layout.tentFt + MARGIN_FT;
-      const cx = Math.min(Math.max(xFt, min + hx), maxX - hx);
-      const cy = Math.min(Math.max(yFt, min + hy), maxY - hy);
-      return { cx, cy };
+      const max = layout.tentFt + MARGIN_FT;
+      return {
+        cx: Math.min(Math.max(xFt, min + hx), max - hx),
+        cy: Math.min(Math.max(yFt, min + hy), max - hy),
+      };
     },
     [layout.tentFt],
   );
@@ -84,47 +75,41 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
     (clientX: number, clientY: number) => {
       const el = wrapRef.current!.querySelector('.plan') as HTMLDivElement;
       const rect = el.getBoundingClientRect();
-      const xFt = (clientX - rect.left) / pxPerFt - MARGIN_FT;
-      const yFt = (clientY - rect.top) / pxPerFt - MARGIN_FT;
-      return { xFt, yFt };
+      return {
+        xFt: (clientX - rect.left) / pxPerFt - MARGIN_FT,
+        yFt: (clientY - rect.top) / pxPerFt - MARGIN_FT,
+      };
     },
     [pxPerFt],
   );
 
-  const onPointerDownTable = (e: React.PointerEvent, table: TableInstance) => {
+  const onPointerDownItem = (e: React.PointerEvent, item: PlacedItem) => {
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    onSelect(table.uid);
+    onSelect(item.uid);
     const { xFt, yFt } = pointerToFt(e.clientX, e.clientY);
-    drag.current = {
-      uid: table.uid,
-      grabDxFt: xFt - table.xFt,
-      grabDyFt: yFt - table.yFt,
-    };
+    drag.current = { uid: item.uid, grabDxFt: xFt - item.xFt, grabDyFt: yFt - item.yFt };
   };
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       const d = drag.current;
       if (!d) return;
-      const table = layout.tables.find((t) => t.uid === d.uid);
-      if (!table) return;
+      const item = layout.items.find((t) => t.uid === d.uid);
+      if (!item) return;
       const { xFt, yFt } = pointerToFt(e.clientX, e.clientY);
-      let nx = xFt - d.grabDxFt;
-      let ny = yFt - d.grabDyFt;
-      nx = Math.round(nx / SNAP_FT) * SNAP_FT;
-      ny = Math.round(ny / SNAP_FT) * SNAP_FT;
-      const { cx, cy } = clampCenter(table, nx, ny);
+      const nx = Math.round((xFt - d.grabDxFt) / SNAP_FT) * SNAP_FT;
+      const ny = Math.round((yFt - d.grabDyFt) / SNAP_FT) * SNAP_FT;
+      const { cx, cy } = clampCenter(item, nx, ny);
       onMove(d.uid, cx, cy);
     },
-    [layout.tables, pointerToFt, clampCenter, onMove],
+    [layout.items, pointerToFt, clampCenter, onMove],
   );
 
   const endDrag = useCallback(() => {
     drag.current = null;
   }, []);
 
-  // Keep drag alive even if pointer leaves the element.
   useEffect(() => {
     window.addEventListener('pointerup', endDrag);
     return () => window.removeEventListener('pointerup', endDrag);
@@ -134,9 +119,9 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
     <div className="canvas-wrap" ref={wrapRef}>
       <div className="canvas-toolbar">
         <span className="pill">
-          Tent {layout.tentFt}′ × {layout.tentFt}′ · grid = 1 ft
+          Tent {layout.tentFt}′ × {layout.tentFt}′ · grid = 1 ft · snap {SNAP_FT}′
         </span>
-        {layout.tables.length === 0 && (
+        {layout.items.length === 0 && (
           <span className="pill">← add a table to start</span>
         )}
       </div>
@@ -153,21 +138,14 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
         onPointerDown={() => onSelect(null)}
         onPointerMove={onPointerMove}
       >
-        {/* Tent footprint */}
         <div
           className="tent-floor"
-          style={{
-            left: originPx,
-            top: originPx,
-            width: tentPx,
-            height: tentPx,
-          }}
+          style={{ left: originPx, top: originPx, width: tentPx, height: tentPx }}
         >
           <span className="tent-label">
             pop-up tent · {layout.tentFt}′ × {layout.tentFt}′
           </span>
         </div>
-        {/* Corner posts */}
         {[
           [originPx, originPx],
           [originPx + tentPx, originPx],
@@ -177,17 +155,16 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
           <div className="tent-post" key={i} style={{ left: px, top: py }} />
         ))}
 
-        {/* Tables */}
-        {layout.tables.map((t) => (
-          <TableView
+        {layout.items.map((t) => (
+          <ItemView
             key={t.uid}
-            table={t}
+            item={t}
             pxPerFt={pxPerFt}
             originPx={originPx}
             selected={t.uid === selectedUid}
             dragging={drag.current?.uid === t.uid}
             showTapes={showTapes}
-            onPointerDown={(e) => onPointerDownTable(e, t)}
+            onPointerDown={(e) => onPointerDownItem(e, t)}
           />
         ))}
       </div>
@@ -195,8 +172,8 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
   );
 }
 
-function TableView({
-  table,
+function ItemView({
+  item,
   pxPerFt,
   originPx,
   selected,
@@ -204,7 +181,7 @@ function TableView({
   showTapes,
   onPointerDown,
 }: {
-  table: TableInstance;
+  item: PlacedItem;
   pxPerFt: number;
   originPx: number;
   selected: boolean;
@@ -212,54 +189,74 @@ function TableView({
   showTapes: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
 }) {
-  const { lengthFt, widthFt, color, label } = dims(table);
-  const lenPx = lengthFt * pxPerFt;
-  const widPx = widthFt * pxPerFt;
-  const cx = originPx + table.xFt * pxPerFt;
-  const cy = originPx + table.yFt * pxPerFt;
+  const kind = itemKindById(item.kindId);
+  const lenPx = kind.lengthFt * pxPerFt;
+  const widPx = kind.widthFt * pxPerFt;
+  const cx = originPx + item.xFt * pxPerFt;
+  const cy = originPx + item.yFt * pxPerFt;
+  const table = isTable(item);
 
-  // Box is drawn in the length-major frame and rotated about its center.
-  const style: React.CSSProperties = {
+  const wrapStyle: React.CSSProperties = {
     width: lenPx,
     height: widPx,
     left: cx - lenPx / 2,
     top: cy - widPx / 2,
-    background: color,
-    transform: `rotate(${table.rotation}deg)`,
+    transform: `rotate(${item.rotation}deg)`,
   };
 
-  const pack = packTable(
-    widthFt * IN_PER_FT,
-    lengthFt * IN_PER_FT,
-    VHS.widthIn,
-    VHS.heightIn,
-  );
+  const pack = table
+    ? flatPackForTable(item)
+    : { placements: [], count: 0 };
+  const rackTapes = rackTapesForTable(item);
 
   return (
     <div
-      className={`table${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}`}
-      style={style}
+      className={`item-wrap${selected ? ' selected' : ''}${dragging ? ' dragging' : ''}`}
+      style={wrapStyle}
       onPointerDown={onPointerDown}
     >
-      {showTapes && pxPerFt >= 16 && (
-        <div className="tape-dot-layer">
-          {pack.placements.map((p, i) => (
-            <div
-              key={i}
-              className="tape-dot"
-              style={{
-                left: (p.x / IN_PER_FT) * pxPerFt,
-                top: (p.y / IN_PER_FT) * pxPerFt,
-                width: (p.w / IN_PER_FT) * pxPerFt - 0.5,
-                height: (p.h / IN_PER_FT) * pxPerFt - 0.5,
-              }}
-            />
-          ))}
+      {/* Front rack strip on the front (bottom) edge */}
+      {table && item.frontRack && (
+        <div
+          className="rack-strip"
+          style={{ top: widPx, height: RACK_DEPTH_FT_PX(pxPerFt) }}
+        >
+          <span className="rack-label">▤ rack · {rackTapes}</span>
         </div>
       )}
-      <span className="table-label">
-        {label} · {pack.count} tapes
-      </span>
+
+      <div
+        className={`surface ${table ? 'table' : 'prop prop-' + kind.prop}`}
+        style={{ background: kind.color }}
+      >
+        {table && showTapes && pxPerFt >= 16 && (
+          <div className="tape-dot-layer">
+            {pack.placements.map((p, i) => (
+              <div
+                key={i}
+                className="tape-dot"
+                style={{
+                  left: (p.x / IN_PER_FT) * pxPerFt,
+                  top: (p.y / IN_PER_FT) * pxPerFt,
+                  width: (p.w / IN_PER_FT) * pxPerFt - 0.5,
+                  height: (p.h / IN_PER_FT) * pxPerFt - 0.5,
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {!table && kind.prop === 'tv' && <div className="tv-screen" />}
+        {!table && kind.prop === 'vinyl' && <div className="vinyl-record" />}
+
+        <span className="surface-label">
+          {table ? `${kind.label} · ${pack.count}` : kind.label}
+        </span>
+      </div>
     </div>
   );
+}
+
+function RACK_DEPTH_FT_PX(pxPerFt: number): number {
+  return RACK_DEPTH_FT * pxPerFt;
 }
