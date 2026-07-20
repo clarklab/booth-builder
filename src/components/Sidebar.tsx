@@ -2,6 +2,7 @@ import {
   MARKED_MAX_PRICE,
   MARKED_MIN_PRICE,
   PROP_KINDS,
+  SELL_THROUGH_LEVELS,
   TABLE_KINDS,
   TENT_SIZES,
   itemKindById,
@@ -23,6 +24,8 @@ type Props = {
   onDuplicate: () => void;
   onDelete: () => void;
   onToggleRack: () => void;
+  onCycleRackSide: () => void;
+  onCycleBannerEdge: () => void;
   onToggleMarked: () => void;
   onClear: () => void;
   onOpen3D: () => void;
@@ -44,6 +47,8 @@ export function Sidebar(props: Props) {
     onDuplicate,
     onDelete,
     onToggleRack,
+    onCycleRackSide,
+    onCycleBannerEdge,
     onToggleMarked,
     onClear,
     onOpen3D,
@@ -55,6 +60,7 @@ export function Sidebar(props: Props) {
   const selectedKind = selected ? itemKindById(selected.kindId) : null;
   const selectedStat = stats.perTable.find((p) => p.uid === selectedUid);
   const selectedIsTable = selected ? isTable(selected) : false;
+  const selectedIsBanner = selectedKind?.prop === 'banner';
 
   return (
     <aside className="sidebar">
@@ -125,13 +131,25 @@ export function Sidebar(props: Props) {
               </div>
             )}
             <div className="row">
-              <button className="btn full" onClick={onRotate}>
-                ⟲ Rotate 90°
-              </button>
+              {selectedIsBanner ? (
+                <button className="btn full" onClick={onCycleBannerEdge}>
+                  ⟲ Next tent edge
+                </button>
+              ) : (
+                <button className="btn full" onClick={onRotate}>
+                  ⟲ Rotate 90°
+                </button>
+              )}
               <button className="btn full" onClick={onDuplicate}>
                 ⧉ Duplicate
               </button>
             </div>
+            {selectedIsBanner && (
+              <div className="hint">
+                Hangs at the top of the poles. Click it on the plan to move it
+                around the tent edges.
+              </div>
+            )}
 
             {selectedIsTable && (
               <>
@@ -145,6 +163,12 @@ export function Sidebar(props: Props) {
                     Front rack <span className="muted">(leaned display board)</span>
                   </span>
                 </label>
+                {selected.frontRack && (
+                  <button className="btn full" onClick={onCycleRackSide}>
+                    ⟲ Move rack to next edge
+                    <span className="muted"> (or click it on the plan)</span>
+                  </button>
+                )}
                 <label className="toggle">
                   <input
                     type="checkbox"
@@ -219,12 +243,23 @@ export function Sidebar(props: Props) {
       <div className="section">
         <h2>Revenue Estimate</h2>
         <div className="stat-big money">
-          <div className="num">{money(pricing.typical)}</div>
-          <div className="lbl">typical gross if it all sells</div>
-          <div className="range">
-            range {money(pricing.low)} – {money(pricing.high)}
-          </div>
+          <div className="num">{money(pricing.typical * 0.5)}</div>
+          <div className="lbl">est. at 50% sell-through</div>
+          <div className="range">if all sells: {money(pricing.typical)}</div>
         </div>
+
+        <div className="ladder">
+          {SELL_THROUGH_LEVELS.map((f) => (
+            <div className={`ladder-row${f === 0.5 ? ' hi' : ''}`} key={f}>
+              <span className="pct">{f === 1 ? 'All' : `${Math.round(f * 100)}%`}</span>
+              <span className="bar">
+                <span style={{ width: `${f * 100}%` }} />
+              </span>
+              <span className="amt">{money(pricing.typical * f)}</span>
+            </div>
+          ))}
+        </div>
+
         <div className="price-lines">
           <div className="line">
             <span>{stats.standardTapes} standard tapes</span>

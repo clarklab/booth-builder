@@ -9,11 +9,131 @@ import {
   VHS_FACE,
   itemKindById,
 } from './constants';
-import { packTable, type TablePack } from './packing';
+import { packTable, type Placement, type TablePack } from './packing';
 import type { Layout, PlacedItem } from './types';
 
 export function isTable(item: PlacedItem): boolean {
   return itemKindById(item.kindId).category === 'table';
+}
+
+type Rect = { x0: number; y0: number; x1: number; y1: number };
+
+function rectsOverlap(a: Rect, b: Rect, eps = 0): boolean {
+  return (
+    a.x0 < b.x1 - eps &&
+    a.x1 > b.x0 + eps &&
+    a.y0 < b.y1 - eps &&
+    a.y1 > b.y0 + eps
+  );
+}
+
+/** Axis-aligned footprint of an item in booth feet (rotation-aware). */
+export function itemWorldAABB(item: PlacedItem): Rect {
+  const { w, h } = itemFootprintFt(item);
+  return {
+    x0: item.xFt - w / 2,
+    y0: item.yFt - h / 2,
+    x1: item.xFt + w / 2,
+    y1: item.yFt + h / 2,
+  };
+}
+
+/** Does a prop sit on top of a table (i.e. overlaps any table footprint)? */
+export function propRestsOnTable(prop: PlacedItem, layout: Layout): boolean {
+  const pr = itemWorldAABB(prop);
+  return layout.items.some(
+    (it) => it.uid !== prop.uid && isTable(it) && rectsOverlap(pr, itemWorldAABB(it)),
+  );
+}
+
+/**
+ * Transform a world-space (feet) axis-aligned rect into a table's local
+ * packing frame, in inches (x along length, y along width). Rotations are
+ * multiples of 90°, so the result stays axis-aligned.
+ */
+function worldRectToTableLocalIn(
+  wr: Rect,
+  table: PlacedItem,
+  Lft: number,
+  Wft: number,
+): Rect {
+  const corners: [number, number][] = [
+    [wr.x0, wr.y0],
+    [wr.x1, wr.y0],
+    [wr.x1, wr.y1],
+    [wr.x0, wr.y1],
+  ];
+  let lx0 = Infinity, ly0 = Infinity, lx1 = -Infinity, ly1 = -Infinity;
+  const rot = ((table.rotation % 360) + 360) % 360;
+  for (const [px, py] of corners) {
+    const dx = px - table.xFt;
+    const dy = py - table.yFt;
+    let u: number, v: number; // centered feet, u along length, v along width
+    if (rot === 0) { u = dx; v = dy; }
+    else if (rot === 90) { u = dy; v = -dx; }
+    else if (rot === 180) { u = -dx; v = -dy; }
+    else { u = -dy; v = dx; }
+    const lx = (u + Lft / 2) * IN_PER_FT;
+    const ly = (v + Wft / 2) * IN_PER_FT;
+    lx0 = Math.min(lx0, lx); lx1 = Math.max(lx1, lx);
+    ly0 = Math.min(ly0, ly); ly1 = Math.max(ly1, ly);
+  }
+  return { x0: lx0, y0: ly0, x1: lx1, y1: ly1 };
+}
+
+/**
+ * Face-up tape placements on a table's top, with any tapes under a prop
+ * (TV, vinyl crate) removed — props sitting on the table displace tapes.
+ */
+export function tableFlatPlacements(table: PlacedItem, layout: Layout): Placement[] {
+  const kind = itemKindById(table.kindId);
+  const base = flatPackForTable(table).placements;
+
+  // Center the whole packed block within the table so leftover slack is
+  // split evenly instead of all landing on one edge. Offset is derived from
+  // the FULL packing, then applied after prop-filtering so holes stay put.
+  const Lin = kind.lengthFt * IN_PER_FT;
+  const Win = kind.widthFt * IN_PER_FT;
+  const off = centerOffset(base, Lin, Win);
+
+  const tableAABB = itemWorldAABB(table);
+  const blockers: Rect[] = [];
+  for (const it of layout.items) {
+    if (it.uid === table.uid || isTable(it)) continue;
+    // Banners hang overhead at eave height — they don't displace tapes.
+    if (itemKindById(it.kindId).prop === 'banner') continue;
+    const pr = itemWorldAABB(it);
+    if (!rectsOverlap(pr, tableAABB)) continue;
+    blockers.push(worldRectToTableLocalIn(pr, table, kind.lengthFt, kind.widthFt));
+  }
+
+  const survivors =
+    blockers.length === 0
+      ? base
+      : base.filter(
+          (p) =>
+            !blockers.some((b) =>
+              rectsOverlap({ x0: p.x, y0: p.y, x1: p.x + p.w, y1: p.y + p.h }, b, 0.25),
+            ),
+        );
+
+  if (off.x === 0 && off.y === 0) return survivors;
+  return survivors.map((p) => ({ ...p, x: p.x + off.x, y: p.y + off.y }));
+}
+
+function centerOffset(placements: Placement[], W: number, H: number): { x: number; y: number } {
+  if (placements.length === 0) return { x: 0, y: 0 };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of placements) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w);
+    maxY = Math.max(maxY, p.y + p.h);
+  }
+  return {
+    x: (W - (maxX - minX)) / 2 - minX,
+    y: (H - (maxY - minY)) / 2 - minY,
+  };
 }
 
 /**
@@ -43,15 +163,40 @@ export function flatPackForTable(item: PlacedItem): TablePack {
 }
 
 /**
- * Front-rack capacity: a leaned board with RACK_ROWS rows. Tapes stand
- * face-out (portrait), so each takes its short side (103mm) along the row,
- * and the row length is the table's long (front) edge.
+ * Which table edge the rack sits on, in the table's local frame:
+ *   0 = front (+width), 1 = right (+length), 2 = back (-width), 3 = left (-length).
+ * The default faces the tent interior.
  */
-export function rackTapesForTable(item: PlacedItem): number {
+export function defaultRackSide(table: PlacedItem, layout: Layout): number {
+  let dx = layout.tentFt / 2 - table.xFt;
+  let dy = layout.tentFt / 2 - table.yFt;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) dy = 1; // centered → arbitrary
+  const rot = ((table.rotation % 360) + 360) % 360;
+  let u: number, v: number; // u along length, v along width (local)
+  if (rot === 0) { u = dx; v = dy; }
+  else if (rot === 90) { u = dy; v = -dx; }
+  else if (rot === 180) { u = -dx; v = -dy; }
+  else { u = -dy; v = dx; }
+  if (Math.abs(v) >= Math.abs(u)) return v >= 0 ? 0 : 2;
+  return u >= 0 ? 1 : 3;
+}
+
+export function rackSideOf(item: PlacedItem, layout: Layout): number {
+  return item.rackSide ?? defaultRackSide(item, layout);
+}
+
+/**
+ * Front-rack capacity: a leaned board with RACK_ROWS rows. Tapes stand
+ * face-out (portrait), so each takes its short side (103mm) along the row.
+ * The row length is the length of whichever table edge the rack sits on.
+ */
+export function rackTapesForTable(item: PlacedItem, layout: Layout): number {
   if (!item.frontRack) return 0;
   const kind = itemKindById(item.kindId);
-  const rowLenIn = kind.lengthFt * IN_PER_FT;
-  const perRow = Math.floor(rowLenIn / VHS.shortIn);
+  const side = rackSideOf(item, layout);
+  const onLongEdge = side === 0 || side === 2;
+  const edgeLenIn = (onLongEdge ? kind.lengthFt : kind.widthFt) * IN_PER_FT;
+  const perRow = Math.floor(edgeLenIn / VHS.shortIn);
   return perRow * RACK_ROWS;
 }
 
@@ -89,8 +234,8 @@ export function computeStats(layout: Layout): LayoutStats {
       propCount++;
       continue;
     }
-    const flat = flatPackForTable(item).count;
-    const rack = rackTapesForTable(item);
+    const flat = tableFlatPlacements(item, layout).length;
+    const rack = rackTapesForTable(item, layout);
     const tapes = flat + rack;
     totalTapes += tapes;
     if (item.asMarked) markedTapes += tapes;
@@ -151,4 +296,9 @@ export function computePricing(stats: LayoutStats, markedAvg: number): Pricing {
 
 export function money(n: number): string {
   return '$' + Math.round(n).toLocaleString();
+}
+
+/** Typical gross for a single table (bundle rate, or marked avg if "as marked"). */
+export function tableTypicalPrice(stat: TableStat, markedAvg: number): number {
+  return stat.asMarked ? stat.tapes * markedAvg : stat.tapes * TAPE_BUNDLE_RATE;
 }

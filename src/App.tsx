@@ -7,7 +7,13 @@ import {
   itemKindById,
   type TentSize,
 } from './domain/constants';
-import { computePricing, computeStats, isTable } from './domain/layout';
+import {
+  computePricing,
+  computeStats,
+  defaultRackSide,
+  isTable,
+  rackSideOf,
+} from './domain/layout';
 import {
   defaultLayout,
   loadLayout,
@@ -44,6 +50,7 @@ export function App() {
       yFt: Math.min(layout.tentFt / 2 + jitter, layout.tentFt - kind.widthFt / 2),
       rotation: 0,
     };
+    if (kind.prop === 'banner') item.bannerEdge = 2; // default: back edge (backdrop)
     update((l) => ({ ...l, items: [...l.items, item] }));
     setSelectedUid(item.uid);
   };
@@ -74,7 +81,34 @@ export function App() {
 
   const toggleRack = () => {
     const src = layout.items.find((t) => t.uid === selectedUid);
-    if (src) patchSelected({ frontRack: !src.frontRack });
+    if (!src) return;
+    const enabling = !src.frontRack;
+    patchSelected({
+      frontRack: enabling,
+      rackSide: enabling ? src.rackSide ?? defaultRackSide(src, layout) : src.rackSide,
+    });
+  };
+
+  const cycleRack = (uid: string) => {
+    const src = layout.items.find((t) => t.uid === uid);
+    if (!src) return;
+    const next = (rackSideOf(src, layout) + 1) % 4;
+    update((l) => ({
+      ...l,
+      items: l.items.map((t) => (t.uid === uid ? { ...t, rackSide: next } : t)),
+    }));
+    setSelectedUid(uid);
+  };
+
+  const cycleBanner = (uid: string) => {
+    const src = layout.items.find((t) => t.uid === uid);
+    if (!src) return;
+    const next = ((src.bannerEdge ?? 0) + 1) % 4;
+    update((l) => ({
+      ...l,
+      items: l.items.map((t) => (t.uid === uid ? { ...t, bannerEdge: next } : t)),
+    }));
+    setSelectedUid(uid);
   };
   const toggleMarked = () => {
     const src = layout.items.find((t) => t.uid === selectedUid);
@@ -163,6 +197,8 @@ export function App() {
           onDuplicate={duplicateSelected}
           onDelete={deleteSelected}
           onToggleRack={toggleRack}
+          onCycleRackSide={() => selectedUid && cycleRack(selectedUid)}
+          onCycleBannerEdge={() => selectedUid && cycleBanner(selectedUid)}
           onToggleMarked={toggleMarked}
           onClear={clearLayout}
           onOpen3D={() => setShow3D(true)}
@@ -176,10 +212,14 @@ export function App() {
           showTapes={showTapes}
           onSelect={setSelectedUid}
           onMove={moveItem}
+          onCycleRack={cycleRack}
+          onCycleBanner={cycleBanner}
         />
       </div>
 
-      {show3D && <Scene3D layout={layout} onClose={() => setShow3D(false)} />}
+      {show3D && (
+        <Scene3D layout={layout} markedAvg={markedAvg} onClose={() => setShow3D(false)} />
+      )}
     </div>
   );
 }

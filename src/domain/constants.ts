@@ -50,6 +50,9 @@ export const MARKED_MIN_PRICE = 7; // "as marked" table range
 export const MARKED_MAX_PRICE = 50;
 export const MARKED_DEFAULT_AVG = 20;
 
+/** Sell-through scenarios for the revenue estimator (fraction of tapes sold). */
+export const SELL_THROUGH_LEVELS = [0.1, 0.25, 0.5, 0.75, 1] as const;
+
 // ---------- Item catalog ----------
 export type ItemCategory = 'table' | 'prop';
 
@@ -62,7 +65,7 @@ export type ItemKind = {
   lengthFt: number;
   color: string;
   supportsRack?: boolean; // tables can carry a leaned front rack
-  prop?: 'tv' | 'vinyl'; // render hint for non-table props
+  prop?: 'tv' | 'vinyl' | 'banner'; // render hint for non-table props
 };
 
 export const ITEM_KINDS: ItemKind[] = [
@@ -71,7 +74,11 @@ export const ITEM_KINDS: ItemKind[] = [
   { id: '3x6', label: `3' × 6'`, category: 'table', widthFt: 3, lengthFt: 6, color: '#a78bfa', supportsRack: true },
   { id: 'tv', label: 'CRT TV', category: 'prop', widthFt: 2, lengthFt: 2, color: '#9ca3af', prop: 'tv' },
   { id: 'vinyl', label: 'Vinyl display', category: 'prop', widthFt: 2, lengthFt: 2, color: '#c084fc', prop: 'vinyl' },
+  { id: 'banner', label: 'Banner', category: 'prop', widthFt: 0.3, lengthFt: 0.3, color: '#ef4444', prop: 'banner' },
 ];
+
+/** Banner: hangs at the top of the poles (eave), this tall, in feet. */
+export const BANNER_HEIGHT_FT = 2;
 
 export const TABLE_KINDS = ITEM_KINDS.filter((k) => k.category === 'table');
 export const PROP_KINDS = ITEM_KINDS.filter((k) => k.category === 'prop');

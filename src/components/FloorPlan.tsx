@@ -6,10 +6,11 @@ import {
   itemKindById,
 } from '../domain/constants';
 import {
-  flatPackForTable,
   isTable,
   itemFootprintFt,
+  rackSideOf,
   rackTapesForTable,
+  tableFlatPlacements,
 } from '../domain/layout';
 import type { Layout, PlacedItem } from '../domain/types';
 
@@ -22,13 +23,23 @@ type Props = {
   showTapes: boolean;
   onSelect: (uid: string | null) => void;
   onMove: (uid: string, xFt: number, yFt: number) => void;
+  onCycleRack: (uid: string) => void;
+  onCycleBanner: (uid: string) => void;
 };
 
 // Depth (ground footprint) of a leaned front rack, in feet.
 const RACK_DEPTH_FT =
   (TABLE_TOP_HEIGHT_IN / IN_PER_FT) * Math.tan((RACK_LEAN_DEG * Math.PI) / 180);
 
-export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: Props) {
+export function FloorPlan({
+  layout,
+  selectedUid,
+  showTapes,
+  onSelect,
+  onMove,
+  onCycleRack,
+  onCycleBanner,
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [pxPerFt, setPxPerFt] = useState(30);
 
@@ -155,18 +166,37 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
           <div className="tent-post" key={i} style={{ left: px, top: py }} />
         ))}
 
-        {layout.items.map((t) => (
-          <ItemView
-            key={t.uid}
-            item={t}
-            pxPerFt={pxPerFt}
-            originPx={originPx}
-            selected={t.uid === selectedUid}
-            dragging={drag.current?.uid === t.uid}
-            showTapes={showTapes}
-            onPointerDown={(e) => onPointerDownItem(e, t)}
-          />
-        ))}
+        {layout.items.map((t) => {
+          if (itemKindById(t.kindId).prop === 'banner') {
+            return (
+              <BannerStrip
+                key={t.uid}
+                item={t}
+                tentFt={layout.tentFt}
+                pxPerFt={pxPerFt}
+                originPx={originPx}
+                selected={t.uid === selectedUid}
+                onSelectOrCycle={(uid, isSel) =>
+                  isSel ? onCycleBanner(uid) : onSelect(uid)
+                }
+              />
+            );
+          }
+          return (
+            <ItemView
+              key={t.uid}
+              item={t}
+              layout={layout}
+              pxPerFt={pxPerFt}
+              originPx={originPx}
+              selected={t.uid === selectedUid}
+              dragging={drag.current?.uid === t.uid}
+              showTapes={showTapes}
+              onPointerDown={(e) => onPointerDownItem(e, t)}
+              onCycleRack={onCycleRack}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -174,20 +204,24 @@ export function FloorPlan({ layout, selectedUid, showTapes, onSelect, onMove }: 
 
 function ItemView({
   item,
+  layout,
   pxPerFt,
   originPx,
   selected,
   dragging,
   showTapes,
   onPointerDown,
+  onCycleRack,
 }: {
   item: PlacedItem;
+  layout: Layout;
   pxPerFt: number;
   originPx: number;
   selected: boolean;
   dragging: boolean;
   showTapes: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
+  onCycleRack: (uid: string) => void;
 }) {
   const kind = itemKindById(item.kindId);
   const lenPx = kind.lengthFt * pxPerFt;
@@ -204,10 +238,20 @@ function ItemView({
     transform: `rotate(${item.rotation}deg)`,
   };
 
-  const pack = table
-    ? flatPackForTable(item)
-    : { placements: [], count: 0 };
-  const rackTapes = rackTapesForTable(item);
+  const placements = table ? tableFlatPlacements(item, layout) : [];
+  const rackTapes = rackTapesForTable(item, layout);
+
+  // Rack strip position depends on which edge it sits on.
+  const side = table && item.frontRack ? rackSideOf(item, layout) : 0;
+  const depthPx = RACK_DEPTH_FT * pxPerFt;
+  const stripStyle: React.CSSProperties =
+    side === 0
+      ? { top: widPx, left: 0, width: lenPx, height: depthPx }
+      : side === 2
+        ? { top: -depthPx, left: 0, width: lenPx, height: depthPx }
+        : side === 1
+          ? { top: 0, left: lenPx, width: depthPx, height: widPx }
+          : { top: 0, left: -depthPx, width: depthPx, height: widPx };
 
   return (
     <div
@@ -215,13 +259,18 @@ function ItemView({
       style={wrapStyle}
       onPointerDown={onPointerDown}
     >
-      {/* Front rack strip on the front (bottom) edge */}
+      {/* Front rack strip on the chosen edge; click to move it around */}
       {table && item.frontRack && (
         <div
           className="rack-strip"
-          style={{ top: widPx, height: RACK_DEPTH_FT_PX(pxPerFt) }}
+          style={stripStyle}
+          title="Click to move the rack to the next edge"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onCycleRack(item.uid);
+          }}
         >
-          <span className="rack-label">▤ rack · {rackTapes}</span>
+          <span className="rack-label">▤ {rackTapes}</span>
         </div>
       )}
 
@@ -231,7 +280,7 @@ function ItemView({
       >
         {table && showTapes && pxPerFt >= 16 && (
           <div className="tape-dot-layer">
-            {pack.placements.map((p, i) => (
+            {placements.map((p, i) => (
               <div
                 key={i}
                 className="tape-dot"
@@ -250,13 +299,50 @@ function ItemView({
         {!table && kind.prop === 'vinyl' && <div className="vinyl-record" />}
 
         <span className="surface-label">
-          {table ? `${kind.label} · ${pack.count}` : kind.label}
+          {table ? `${kind.label} · ${placements.length}` : kind.label}
         </span>
       </div>
     </div>
   );
 }
 
-function RACK_DEPTH_FT_PX(pxPerFt: number): number {
-  return RACK_DEPTH_FT * pxPerFt;
+function BannerStrip({
+  item,
+  tentFt,
+  pxPerFt,
+  originPx,
+  selected,
+  onSelectOrCycle,
+}: {
+  item: PlacedItem;
+  tentFt: number;
+  pxPerFt: number;
+  originPx: number;
+  selected: boolean;
+  onSelectOrCycle: (uid: string, isSelected: boolean) => void;
+}) {
+  const edge = item.bannerEdge ?? 0;
+  const tentPx = tentFt * pxPerFt;
+  const tPx = Math.max(7, 0.5 * pxPerFt);
+  const style: React.CSSProperties =
+    edge === 0
+      ? { left: originPx, top: originPx + tentPx - tPx / 2, width: tentPx, height: tPx }
+      : edge === 2
+        ? { left: originPx, top: originPx - tPx / 2, width: tentPx, height: tPx }
+        : edge === 1
+          ? { left: originPx + tentPx - tPx / 2, top: originPx, width: tPx, height: tentPx }
+          : { left: originPx - tPx / 2, top: originPx, width: tPx, height: tentPx };
+  return (
+    <div
+      className={`banner-strip${selected ? ' selected' : ''}`}
+      style={style}
+      title="Click to hang the banner on the next tent edge"
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onSelectOrCycle(item.uid, selected);
+      }}
+    >
+      <span className="banner-label">BANNER</span>
+    </div>
+  );
 }

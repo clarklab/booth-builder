@@ -12,19 +12,23 @@ booth — including how many **VHS tapes** fit face-up on your tables.
   pop-up canopies.
 - **Tables like Lego.** Add **2′×4′**, **2′×6′**, and **3′×6′** tables, drag
   them, rotate them 90°, duplicate, or delete.
-- **Display props.** Drop in a **CRT TV** (2′×2′) or a **Vinyl display** crate
-  (2′×2′) and place them like everything else.
+- **Display props.** Drop in a **CRT TV** (2′×2′), a **Vinyl display** crate
+  (2′×2′), or a **Banner** that hangs along a tent edge at the top of the poles.
+  A TV or crate placed on a table rests on the tabletop and **displaces the
+  tapes underneath** (they're removed from the count).
 - **VHS capacity math.** Tapes are packed in a solid mosaic (both orientations
-  allowed) to maximize the count on each table. The total updates live.
+  allowed) to maximize the count on each table, then centered on the table.
 - **Front rack (optional, per table).** Toggle a leaned plywood display board
-  on a table's front edge that holds tapes standing face-out in 3 rows —
-  those tapes are counted and priced too.
+  that holds tapes standing face-out in 3 rows. Pick which edge it sits on —
+  it defaults to facing into the tent; click it on the plan (or the sidebar
+  button) to move it to any edge. Its tapes are counted and priced.
 - **Revenue estimates.** Standard tapes priced at 3-for-$10 (typical) up to
   $5 each; mark one table **“as marked”** for premium tapes ($7–$50, avg
-  adjustable). Shows a typical gross plus a low–high range.
+  adjustable). A **sell-through ladder** shows the estimate at 10/25/50/75/100%.
 - **3D preview.** A wireframe pop-up tent (a post on each corner) with your
-  tables, front racks, TVs, and vinyl crates set up exactly as laid out —
-  tables covered in a colorful VHS mosaic. Orbit, zoom, and pan.
+  tables, front racks, TVs, vinyl crates, and banners set up exactly as laid
+  out. Tapes wear randomly generated, heavily pixelated **VHS covers**, and a
+  camera-facing price label hovers over each table. Orbit, zoom, and pan.
 
 Layouts auto-save to your browser (localStorage).
 
