@@ -361,10 +361,22 @@ body {
   white-space: nowrap;
 }
 
-.table {
+.item-wrap {
   position: absolute;
-  border-radius: 4px;
   cursor: grab;
+  touch-action: none;
+}
+.item-wrap.dragging {
+  cursor: grabbing;
+  z-index: 4;
+}
+.item-wrap.selected {
+  z-index: 3;
+}
+.surface {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -375,29 +387,83 @@ body {
   border: 2px solid rgba(255, 255, 255, 0.25);
   overflow: hidden;
 }
-.table.selected {
+.item-wrap.selected .surface {
   border-color: #fff;
   box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.5);
-  z-index: 3;
 }
-.table.dragging {
-  cursor: grabbing;
-  z-index: 4;
-}
-.table .table-label {
+.surface-label {
   pointer-events: none;
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.35);
+  z-index: 2;
+  padding: 0 3px;
+  text-align: center;
 }
-.table .tape-dot-layer {
+.tape-dot-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
-.table .tape-dot {
+.tape-dot {
   position: absolute;
   background: rgba(6, 18, 31, 0.28);
   border: 0.5px solid rgba(6, 18, 31, 0.25);
   border-radius: 1px;
+}
+
+/* Front rack strip (leaned board footprint on the front edge) */
+.rack-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(180, 130, 70, 0.85),
+    rgba(180, 130, 70, 0.85) 4px,
+    rgba(140, 96, 45, 0.85) 4px,
+    rgba(140, 96, 45, 0.85) 8px
+  );
+  border: 1px solid rgba(120, 80, 40, 0.9);
+  border-radius: 0 0 3px 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.rack-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: #2a1a08;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Props */
+.prop {
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.prop-tv {
+  border-radius: 6px;
+}
+.tv-screen {
+  position: absolute;
+  inset: 18%;
+  background: radial-gradient(circle at 40% 35%, #4b5563, #0b1120 80%);
+  border-radius: 4px;
+  border: 2px solid #1f2937;
+}
+.vinyl-record {
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at center,
+    #e5e7eb 0 12%,
+    #1f2937 12% 18%,
+    #111827 18% 100%
+  );
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
 
 /* ---------- 3D overlay ---------- */
@@ -464,4 +530,90 @@ body {
     width: 100%;
     max-height: 45%;
   }
+}
+
+/* ---------- Added UI: toggles, props, pricing ---------- */
+.plus {
+  font-size: 18px;
+  color: var(--muted);
+}
+.prop-icon {
+  width: 26px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+.toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  flex: none;
+}
+.toggle .muted,
+.muted {
+  color: var(--muted);
+}
+
+.stat-big.money {
+  background: linear-gradient(135deg, #14321f, #17331c);
+}
+.stat-big.money .num {
+  color: #34d399;
+}
+.stat-big .range {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.price-lines {
+  margin-top: 10px;
+  font-size: 13px;
+}
+.price-lines .line {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+  color: var(--muted);
+}
+.price-lines .line span:last-child {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.marked-avg {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.marked-avg .input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--text);
+}
+.marked-avg input {
+  width: 46px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 14px;
+  text-align: right;
+  outline: none;
 }
