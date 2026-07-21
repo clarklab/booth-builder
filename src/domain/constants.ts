@@ -65,7 +65,7 @@ export type ItemKind = {
   lengthFt: number;
   color: string;
   supportsRack?: boolean; // tables can carry a leaned front rack
-  prop?: 'tv' | 'vinyl' | 'banner'; // render hint for non-table props
+  prop?: 'tv' | 'vinyl' | 'banner' | 'chair'; // render hint for non-table props
 };
 
 export const ITEM_KINDS: ItemKind[] = [
@@ -75,6 +75,7 @@ export const ITEM_KINDS: ItemKind[] = [
   { id: 'tv', label: 'CRT TV', category: 'prop', widthFt: 2, lengthFt: 2, color: '#9ca3af', prop: 'tv' },
   { id: 'vinyl', label: 'Vinyl display', category: 'prop', widthFt: 2, lengthFt: 2, color: '#c084fc', prop: 'vinyl' },
   { id: 'banner', label: 'Banner', category: 'prop', widthFt: 0.3, lengthFt: 0.3, color: '#ef4444', prop: 'banner' },
+  { id: 'chair', label: 'Folding chair', category: 'prop', widthFt: 3, lengthFt: 3, color: '#64748b', prop: 'chair' },
 ];
 
 /** Banner: hangs at the top of the poles (eave), this tall, in feet. */

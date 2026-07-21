@@ -13,9 +13,11 @@ booth — including how many **VHS tapes** fit face-up on your tables.
 - **Tables like Lego.** Add **2′×4′**, **2′×6′**, and **3′×6′** tables, drag
   them, rotate them 90°, duplicate, or delete.
 - **Display props.** Drop in a **CRT TV** (2′×2′), a **Vinyl display** crate
-  (2′×2′), or a **Banner** that hangs along a tent edge at the top of the poles.
-  A TV or crate placed on a table rests on the tabletop and **displaces the
-  tapes underneath** (they're removed from the count).
+  (2′×2′), a **Folding chair** (3′×3′, sits on the ground), or a **Banner**
+  that hangs along a tent edge at the top of the poles and reads
+  “VHSgarage.com”. A TV or crate placed on a table rests on the tabletop and
+  **displaces the tapes underneath** (they're removed from the count); chairs
+  and banners don't.
 - **VHS capacity math.** Tapes are packed in a solid mosaic (both orientations
   allowed) to maximize the count on each table, then centered on the table.
 - **Front rack (optional, per table).** Toggle a leaned plywood display board

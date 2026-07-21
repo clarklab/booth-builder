@@ -297,6 +297,7 @@ function ItemView({
 
         {!table && kind.prop === 'tv' && <div className="tv-screen" />}
         {!table && kind.prop === 'vinyl' && <div className="vinyl-record" />}
+        {!table && kind.prop === 'chair' && <div className="chair-emoji">🪑</div>}
 
         <span className="surface-label">
           {table ? `${kind.label} · ${placements.length}` : kind.label}

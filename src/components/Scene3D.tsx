@@ -232,10 +232,14 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
       scene.add(group);
 
       if (kind.category !== 'table') {
-        // A prop sitting over a table rests on the tabletop; otherwise the floor.
-        const baseY = propRestsOnTable(item, layout) ? tableTopY : 0;
-        if (kind.prop === 'tv') buildTV(group, baseY, disposables);
-        else if (kind.prop === 'vinyl') buildVinyl(group, baseY, disposables, coverMat, cursor);
+        if (kind.prop === 'chair') {
+          buildChair(group, disposables); // always on the ground
+        } else {
+          // TV / vinyl: rest on a tabletop if over a table, else the floor.
+          const baseY = propRestsOnTable(item, layout) ? tableTopY : 0;
+          if (kind.prop === 'tv') buildTV(group, baseY, disposables);
+          else if (kind.prop === 'vinyl') buildVinyl(group, baseY, disposables, coverMat, cursor);
+        }
         continue;
       }
 
@@ -459,6 +463,41 @@ function buildTV(parent: THREE.Group, baseY: number, disposables: Disposable[]) 
   disposables.push(screen.geometry, screenMat);
 }
 
+// ---------- Folding chair (sits on the ground) ----------
+function buildChair(parent: THREE.Group, disposables: Disposable[]) {
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: '#374151', roughness: 0.5, metalness: 0.5,
+  });
+  const seatMat = new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.85 });
+  const seatY = 1.45;
+  const seatW = 1.4;
+
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(seatW, 0.09, seatW), seatMat);
+  seat.position.set(0, seatY, 0.1);
+  seat.castShadow = true;
+  seat.receiveShadow = true;
+  parent.add(seat);
+  disposables.push(seat.geometry);
+
+  const back = new THREE.Mesh(new THREE.BoxGeometry(seatW, 1.3, 0.09), seatMat);
+  back.position.set(0, seatY + 0.62, -0.58);
+  back.castShadow = true;
+  parent.add(back);
+  disposables.push(back.geometry);
+
+  const legGeo = new THREE.BoxGeometry(0.07, seatY, 0.07);
+  const lx = seatW / 2 - 0.12;
+  for (const [x, z] of [
+    [lx, 0.58], [-lx, 0.58], [lx, -0.5], [-lx, -0.5],
+  ] as [number, number][]) {
+    const leg = new THREE.Mesh(legGeo, frameMat);
+    leg.position.set(x, seatY / 2, z);
+    leg.castShadow = true;
+    parent.add(leg);
+  }
+  disposables.push(legGeo, frameMat, seatMat);
+}
+
 // ---------- Vinyl display (crate of records) ----------
 function buildVinyl(
   parent: THREE.Group,
@@ -525,30 +564,81 @@ function buildBanner(
   const yCenter = TENT_EAVE_FT - H / 2; // top flush with the eave (pole tops)
   const thick = 0.05;
   const spanX = edge === 0 || edge === 2;
+
+  // Red backing box (gives the banner thickness / a shadow).
   const geo = spanX
     ? new THREE.BoxGeometry(tentFt, H, thick)
     : new THREE.BoxGeometry(thick, H, tentFt);
-  const mat = new THREE.MeshStandardMaterial({
-    color: '#dc2626', roughness: 0.85, side: THREE.DoubleSide,
-  });
+  const mat = new THREE.MeshStandardMaterial({ color: '#b91c1c', roughness: 0.85 });
   const banner = new THREE.Mesh(geo, mat);
-  if (edge === 0) banner.position.set(0, yCenter, half);
-  else if (edge === 2) banner.position.set(0, yCenter, -half);
-  else if (edge === 1) banner.position.set(half, yCenter, 0);
-  else banner.position.set(-half, yCenter, 0);
+  const pos: [number, number, number] =
+    edge === 0 ? [0, yCenter, half]
+      : edge === 2 ? [0, yCenter, -half]
+        : edge === 1 ? [half, yCenter, 0]
+          : [-half, yCenter, 0];
+  banner.position.set(...pos);
   banner.castShadow = true;
   scene.add(banner);
   disposables.push(geo, mat);
 
-  // A pale valance stripe across the middle for a printed-banner look.
-  const stripeGeo = spanX
-    ? new THREE.BoxGeometry(tentFt * 0.98, H * 0.28, thick + 0.01)
-    : new THREE.BoxGeometry(thick + 0.01, H * 0.28, tentFt * 0.98);
-  const stripeMat = new THREE.MeshStandardMaterial({ color: '#fef3c7', roughness: 0.9 });
-  const stripe = new THREE.Mesh(stripeGeo, stripeMat);
-  stripe.position.copy(banner.position);
-  scene.add(stripe);
-  disposables.push(stripeGeo, stripeMat);
+  // Printed "VHSgarage.com" on BOTH faces (unlit, so it stays crisp and
+  // legible and reads correctly from either side).
+  const tex = makeBannerTexture(tentFt);
+  const printMat = new THREE.MeshBasicMaterial({ map: tex });
+  const out = thick / 2 + 0.02;
+  const mkFace = (x: number, z: number, ry: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(tentFt, H), printMat);
+    m.position.set(x, yCenter, z);
+    m.rotation.y = ry;
+    scene.add(m);
+    disposables.push(m.geometry);
+  };
+  if (spanX) {
+    mkFace(pos[0], pos[2] + out, 0);
+    mkFace(pos[0], pos[2] - out, Math.PI);
+  } else {
+    mkFace(pos[0] + out, pos[2], Math.PI / 2);
+    mkFace(pos[0] - out, pos[2], -Math.PI / 2);
+  }
+  disposables.push(printMat, tex);
+}
+
+/** Canvas texture for the banner: red field with big "VHSgarage.com". */
+function makeBannerTexture(tentFt: number): THREE.CanvasTexture {
+  const texH = 220;
+  const texW = Math.round(tentFt * 130);
+  const canvas = document.createElement('canvas');
+  canvas.width = texW;
+  canvas.height = texH;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#dc2626';
+  ctx.fillRect(0, 0, texW, texH);
+  // Cream accent bars top & bottom.
+  ctx.fillStyle = '#fde68a';
+  ctx.fillRect(0, 0, texW, texH * 0.06);
+  ctx.fillRect(0, texH * 0.94, texW, texH * 0.06);
+  // Fit the title to ~92% of the width.
+  const text = 'VHSgarage.com';
+  let size = texH * 0.6;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  do {
+    ctx.font = `900 ${size}px Arial, Helvetica, sans-serif`;
+    if (ctx.measureText(text).width <= texW * 0.92) break;
+    size -= 4;
+  } while (size > 12);
+  ctx.font = `900 ${size}px Arial, Helvetica, sans-serif`;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = size * 0.07;
+  ctx.strokeText(text, texW / 2, texH * 0.52);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, texW / 2, texH * 0.52);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 // ---------- Camera-facing price label ----------

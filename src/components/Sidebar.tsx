@@ -101,7 +101,13 @@ export function Sidebar(props: Props) {
           {PROP_KINDS.map((k) => (
             <button key={k.id} className="table-btn" onClick={() => onAddItem(k.id)}>
               <span className="swatch prop-icon" style={{ background: k.color }}>
-                {k.prop === 'tv' ? '📺' : '🎵'}
+                {k.prop === 'tv'
+                  ? '📺'
+                  : k.prop === 'vinyl'
+                    ? '🎵'
+                    : k.prop === 'banner'
+                      ? '🚩'
+                      : '🪑'}
               </span>
               <span className="meta">
                 <span className="name">{k.label}</span>

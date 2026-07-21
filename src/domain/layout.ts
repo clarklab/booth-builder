@@ -100,8 +100,10 @@ export function tableFlatPlacements(table: PlacedItem, layout: Layout): Placemen
   const blockers: Rect[] = [];
   for (const it of layout.items) {
     if (it.uid === table.uid || isTable(it)) continue;
-    // Banners hang overhead at eave height — they don't displace tapes.
-    if (itemKindById(it.kindId).prop === 'banner') continue;
+    // Only props that rest on a table (TV, vinyl crate) displace tapes;
+    // banners hang overhead and chairs sit on the ground.
+    const p = itemKindById(it.kindId).prop;
+    if (p !== 'tv' && p !== 'vinyl') continue;
     const pr = itemWorldAABB(it);
     if (!rectsOverlap(pr, tableAABB)) continue;
     blockers.push(worldRectToTableLocalIn(pr, table, kind.lengthFt, kind.widthFt));
