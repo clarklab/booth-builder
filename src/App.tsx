@@ -55,6 +55,26 @@ export function App() {
     setSelectedUid(item.uid);
   };
 
+  // Drop an item at a specific spot (drag-and-drop from the sidebar).
+  const addItemAt = (kindId: string, xFt: number, yFt: number) => {
+    const kind = itemKindById(kindId);
+    const item: PlacedItem = { uid: makeUid(), kindId, xFt, yFt, rotation: 0 };
+    if (kind.prop === 'banner') {
+      // Snap to the nearest tent edge.
+      const t = layout.tentFt;
+      const d = [t - yFt, t - xFt, yFt, xFt]; // front, right, back, left
+      item.bannerEdge = d.indexOf(Math.min(...d));
+    } else {
+      const M = 3; // working margin
+      const hw = kind.lengthFt / 2;
+      const hh = kind.widthFt / 2;
+      item.xFt = Math.min(Math.max(xFt, -M + hw), layout.tentFt + M - hw);
+      item.yFt = Math.min(Math.max(yFt, -M + hh), layout.tentFt + M - hh);
+    }
+    update((l) => ({ ...l, items: [...l.items, item] }));
+    setSelectedUid(item.uid);
+  };
+
   const moveItem = (uid: string, xFt: number, yFt: number) =>
     update((l) => ({
       ...l,
@@ -201,7 +221,6 @@ export function App() {
           onCycleBannerEdge={() => selectedUid && cycleBanner(selectedUid)}
           onToggleMarked={toggleMarked}
           onClear={clearLayout}
-          onOpen3D={() => setShow3D(true)}
           onToggleTapes={setShowTapes}
           onMarkedAvgChange={setMarkedAvg}
         />
@@ -214,11 +233,20 @@ export function App() {
           onMove={moveItem}
           onCycleRack={cycleRack}
           onCycleBanner={cycleBanner}
+          onAddAt={addItemAt}
+          onOpen3D={() => setShow3D(true)}
+          canOpen3D={layout.items.length > 0}
         />
       </div>
 
       {show3D && (
-        <Scene3D layout={layout} markedAvg={markedAvg} onClose={() => setShow3D(false)} />
+        <Scene3D
+          layout={layout}
+          markedAvg={markedAvg}
+          selectedUid={selectedUid}
+          onSelect={setSelectedUid}
+          onClose={() => setShow3D(false)}
+        />
       )}
     </div>
   );

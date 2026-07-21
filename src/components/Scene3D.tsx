@@ -133,13 +133,18 @@ function withCovers(
 type Props = {
   layout: Layout;
   markedAvg: number;
+  selectedUid: string | null;
+  onSelect: (uid: string | null) => void;
   onClose: () => void;
 };
 
 type Disposable = { dispose: () => void };
 
-export function Scene3D({ layout, markedAvg, onClose }: Props) {
+export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
+  // Camera pose persists across scene rebuilds (rotate/select) so the view
+  // doesn't snap back. Reset naturally when the overlay unmounts/remounts.
+  const poseRef = useRef<{ pos: [number, number, number]; tgt: [number, number, number] } | null>(null);
   const stats = useMemo(() => computeStats(layout), [layout]);
 
   useEffect(() => {
@@ -153,7 +158,8 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
     scene.fog = new THREE.Fog('#0a1120', 30, 90);
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 500);
-    camera.position.set(tentFt * 1.1, tentFt * 1.05, tentFt * 1.35);
+    if (poseRef.current) camera.position.set(...poseRef.current.pos);
+    else camera.position.set(tentFt * 1.1, tentFt * 1.05, tentFt * 1.35);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -168,7 +174,8 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
     controls.minDistance = 3;
     controls.maxDistance = 80;
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
-    controls.target.set(0, TABLE_TOP_HEIGHT_IN / IN_PER_FT, 0);
+    if (poseRef.current) controls.target.set(...poseRef.current.tgt);
+    else controls.target.set(0, TABLE_TOP_HEIGHT_IN / IN_PER_FT, 0);
 
     // Lighting
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -219,16 +226,29 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
     const cursor = { n: 0 };
     const dummy = new THREE.Object3D();
     const statsInner = computeStats(layout);
+    const updaters: (() => void)[] = []; // per-frame animations (e.g. TV static)
+
+    const addSelBox = (obj: THREE.Object3D) => {
+      const bh = new THREE.BoxHelper(obj, 0x38bdf8);
+      const m = bh.material as THREE.LineBasicMaterial;
+      m.depthTest = false;
+      m.transparent = true;
+      bh.renderOrder = 998;
+      scene.add(bh);
+      disposables.push(bh);
+    };
 
     for (const item of layout.items) {
       const kind = itemKindById(item.kindId);
+      const isSel = item.uid === selectedUid;
       if (kind.prop === 'banner') {
-        buildBanner(scene, tentFt, item.bannerEdge ?? 0, disposables);
+        buildBanner(scene, tentFt, item.bannerEdge ?? 0, item.uid, isSel, disposables);
         continue;
       }
       const group = new THREE.Group();
       group.position.set(item.xFt - tentFt / 2, 0, item.yFt - tentFt / 2);
       group.rotation.y = (-item.rotation * Math.PI) / 180;
+      group.userData.uid = item.uid;
       scene.add(group);
 
       if (kind.category !== 'table') {
@@ -237,9 +257,10 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
         } else {
           // TV / vinyl: rest on a tabletop if over a table, else the floor.
           const baseY = propRestsOnTable(item, layout) ? tableTopY : 0;
-          if (kind.prop === 'tv') buildTV(group, baseY, disposables);
+          if (kind.prop === 'tv') buildTV(group, baseY, disposables, updaters);
           else if (kind.prop === 'vinyl') buildVinyl(group, baseY, disposables, coverMat, cursor);
         }
+        if (isSel) addSelBox(group);
         continue;
       }
 
@@ -308,6 +329,9 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
         });
       }
 
+      // Selection box hugs the table (added before the tall price label).
+      if (isSel) addSelBox(group);
+
       // Hovering, camera-facing price label
       const stat = statsInner.perTable.find((p) => p.uid === item.uid);
       if (stat) {
@@ -321,10 +345,45 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
       }
     }
 
+    // Click-to-pick selection (distinguish a click from an orbit drag).
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let downX = 0, downY = 0;
+    const onPointerDownPick = (e: PointerEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+    };
+    const onPointerUpPick = (e: PointerEvent) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      ray.setFromCamera(ndc, camera);
+      const hits = ray.intersectObjects(scene.children, true);
+      let uid: string | null = null;
+      for (const h of hits) {
+        let o: THREE.Object3D | null = h.object;
+        while (o) {
+          if (o.userData && o.userData.uid) { uid = o.userData.uid as string; break; }
+          o = o.parent;
+        }
+        if (uid) break;
+      }
+      onSelect(uid);
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDownPick);
+    renderer.domElement.addEventListener('pointerup', onPointerUpPick);
+
     // Render loop
     let raf = 0;
+    let frame = 0;
     const animate = () => {
       controls.update();
+      poseRef.current = {
+        pos: [camera.position.x, camera.position.y, camera.position.z],
+        tgt: [controls.target.x, controls.target.y, controls.target.z],
+      };
+      if ((frame++ & 1) === 0) for (const u of updaters) u(); // ~30fps static
       renderer.render(scene, camera);
       raf = requestAnimationFrame(animate);
     };
@@ -343,6 +402,8 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onPointerDownPick);
+      renderer.domElement.removeEventListener('pointerup', onPointerUpPick);
       controls.dispose();
       for (const d of disposables) d.dispose();
       scene.traverse((o) => {
@@ -355,7 +416,7 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
-  }, [layout, markedAvg]);
+  }, [layout, markedAvg, selectedUid, onSelect]);
 
   return (
     <div className="overlay">
@@ -370,7 +431,8 @@ export function Scene3D({ layout, markedAvg, onClose }: Props) {
       </div>
       <div className="overlay-canvas" ref={mountRef}>
         <div className="overlay-hint">
-          drag to orbit · scroll to zoom · right-drag to pan
+          click an item to select · R rotate · F front rack · Del remove · drag
+          to orbit · scroll to zoom
         </div>
       </div>
     </div>
@@ -443,7 +505,12 @@ function buildRack(
 }
 
 // ---------- CRT TV (sits on the given surface height) ----------
-function buildTV(parent: THREE.Group, baseY: number, disposables: Disposable[]) {
+function buildTV(
+  parent: THREE.Group,
+  baseY: number,
+  disposables: Disposable[],
+  updaters: (() => void)[],
+) {
   const bodyH = 1.35;
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#9ca3af', roughness: 0.6 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, bodyH, 1.4), bodyMat);
@@ -453,14 +520,45 @@ function buildTV(parent: THREE.Group, baseY: number, disposables: Disposable[]) 
   parent.add(body);
   disposables.push(body.geometry, bodyMat);
 
-  // Screen (slightly emissive, faces +z / front)
+  // Screen showing faint animated static (looks powered on).
+  const NW = 64, NH = 48;
+  const canvas = document.createElement('canvas');
+  canvas.width = NW;
+  canvas.height = NH;
+  const nctx = canvas.getContext('2d')!;
+  const img = nctx.createImageData(NW, NH);
+  const drawNoise = () => {
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // Dim grey noise → subtle, not a blinding white screen.
+      const v = 24 + Math.floor(Math.random() * 90);
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    nctx.putImageData(img, 0, 0);
+  };
+  drawNoise();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
   const screenMat = new THREE.MeshStandardMaterial({
-    color: '#0b1a2a', emissive: '#12324f', emissiveIntensity: 0.6, roughness: 0.2,
+    color: '#050608',
+    map: tex,
+    emissive: 0xaec4dd,
+    emissiveMap: tex,
+    emissiveIntensity: 0.45,
+    roughness: 0.35,
   });
   const screen = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.0, 0.06), screenMat);
   screen.position.set(0, baseY + bodyH / 2 + 0.02, 0.72);
   parent.add(screen);
-  disposables.push(screen.geometry, screenMat);
+  disposables.push(screen.geometry, screenMat, tex);
+  updaters.push(() => {
+    drawNoise();
+    tex.needsUpdate = true;
+  });
 }
 
 // ---------- Folding chair (sits on the ground) ----------
@@ -557,6 +655,8 @@ function buildBanner(
   scene: THREE.Scene,
   tentFt: number,
   edge: number,
+  uid: string,
+  selected: boolean,
   disposables: Disposable[],
 ) {
   const half = tentFt / 2;
@@ -569,7 +669,7 @@ function buildBanner(
   const geo = spanX
     ? new THREE.BoxGeometry(tentFt, H, thick)
     : new THREE.BoxGeometry(thick, H, tentFt);
-  const mat = new THREE.MeshStandardMaterial({ color: '#b91c1c', roughness: 0.85 });
+  const mat = new THREE.MeshStandardMaterial({ color: '#0a0a0a', roughness: 0.8 });
   const banner = new THREE.Mesh(geo, mat);
   const pos: [number, number, number] =
     edge === 0 ? [0, yCenter, half]
@@ -578,6 +678,7 @@ function buildBanner(
           : [-half, yCenter, 0];
   banner.position.set(...pos);
   banner.castShadow = true;
+  banner.userData.uid = uid;
   scene.add(banner);
   disposables.push(geo, mat);
 
@@ -590,6 +691,7 @@ function buildBanner(
     const m = new THREE.Mesh(new THREE.PlaneGeometry(tentFt, H), printMat);
     m.position.set(x, yCenter, z);
     m.rotation.y = ry;
+    m.userData.uid = uid;
     scene.add(m);
     disposables.push(m.geometry);
   };
@@ -601,6 +703,15 @@ function buildBanner(
     mkFace(pos[0] - out, pos[2], -Math.PI / 2);
   }
   disposables.push(printMat, tex);
+
+  if (selected) {
+    const bh = new THREE.BoxHelper(banner, 0x38bdf8);
+    const bm = bh.material as THREE.LineBasicMaterial;
+    bm.depthTest = false;
+    bh.renderOrder = 998;
+    scene.add(bh);
+    disposables.push(bh);
+  }
 }
 
 /** Canvas texture for the banner: red field with big "VHSgarage.com". */
@@ -611,12 +722,13 @@ function makeBannerTexture(tentFt: number): THREE.CanvasTexture {
   canvas.width = texW;
   canvas.height = texH;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#dc2626';
+  const gold = '#f5c518';
+  ctx.fillStyle = '#0a0a0a'; // black background
   ctx.fillRect(0, 0, texW, texH);
-  // Cream accent bars top & bottom.
-  ctx.fillStyle = '#fde68a';
-  ctx.fillRect(0, 0, texW, texH * 0.06);
-  ctx.fillRect(0, texH * 0.94, texW, texH * 0.06);
+  // Gold accent bars top & bottom.
+  ctx.fillStyle = gold;
+  ctx.fillRect(0, 0, texW, texH * 0.07);
+  ctx.fillRect(0, texH * 0.93, texW, texH * 0.07);
   // Fit the title to ~92% of the width.
   const text = 'VHSgarage.com';
   let size = texH * 0.6;
@@ -629,10 +741,10 @@ function makeBannerTexture(tentFt: number): THREE.CanvasTexture {
   } while (size > 12);
   ctx.font = `900 ${size}px Arial, Helvetica, sans-serif`;
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = size * 0.07;
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = size * 0.06;
   ctx.strokeText(text, texW / 2, texH * 0.52);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = gold; // gold-yellow text
   ctx.fillText(text, texW / 2, texH * 0.52);
 
   const tex = new THREE.CanvasTexture(canvas);

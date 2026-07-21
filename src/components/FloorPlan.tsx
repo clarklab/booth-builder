@@ -25,6 +25,9 @@ type Props = {
   onMove: (uid: string, xFt: number, yFt: number) => void;
   onCycleRack: (uid: string) => void;
   onCycleBanner: (uid: string) => void;
+  onAddAt: (kindId: string, xFt: number, yFt: number) => void;
+  onOpen3D: () => void;
+  canOpen3D: boolean;
 };
 
 // Depth (ground footprint) of a leaned front rack, in feet.
@@ -39,6 +42,9 @@ export function FloorPlan({
   onMove,
   onCycleRack,
   onCycleBanner,
+  onAddAt,
+  onOpen3D,
+  canOpen3D,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [pxPerFt, setPxPerFt] = useState(30);
@@ -121,6 +127,17 @@ export function FloorPlan({
     drag.current = null;
   }, []);
 
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const kindId = e.dataTransfer.getData('text/plain');
+      if (!kindId) return;
+      const { xFt, yFt } = pointerToFt(e.clientX, e.clientY);
+      onAddAt(kindId, xFt, yFt);
+    },
+    [pointerToFt, onAddAt],
+  );
+
   useEffect(() => {
     window.addEventListener('pointerup', endDrag);
     return () => window.removeEventListener('pointerup', endDrag);
@@ -133,9 +150,17 @@ export function FloorPlan({
           Tent {layout.tentFt}′ × {layout.tentFt}′ · grid = 1 ft · snap {SNAP_FT}′
         </span>
         {layout.items.length === 0 && (
-          <span className="pill">← add a table to start</span>
+          <span className="pill">← drag a table in, or click to add</span>
         )}
       </div>
+
+      <button
+        className="btn primary stage-3d-btn"
+        onClick={onOpen3D}
+        disabled={!canOpen3D}
+      >
+        🎡 View in 3D
+      </button>
 
       <div
         className="plan"
@@ -148,6 +173,11 @@ export function FloorPlan({
         }
         onPointerDown={() => onSelect(null)}
         onPointerMove={onPointerMove}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={onDrop}
       >
         <div
           className="tent-floor"

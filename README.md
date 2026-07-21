@@ -48,7 +48,13 @@ area-max. Typical counts:
 | 2′ × 6′ | 51              |
 | 3′ × 6′ | 77              |
 
+Add items by **dragging them from the sidebar** onto the plan (or click to
+drop one in). In the **3D view you can click an item to select it** and use the
+same keyboard shortcuts — the camera stays put while you edit.
+
 ## Keyboard shortcuts
+
+Work in both the floor plan and the 3D view (on the selected item):
 
 - **R** — rotate the selected item 90°
 - **D** — duplicate the selected item

@@ -661,14 +661,8 @@ body {
 /* ---------- Banner (top-down strip on a tent edge) ---------- */
 .banner-strip {
   position: absolute;
-  background: repeating-linear-gradient(
-    45deg,
-    #ef4444,
-    #ef4444 6px,
-    #dc2626 6px,
-    #dc2626 12px
-  );
-  border: 1px solid #991b1b;
+  background: #0a0a0a;
+  border: 1px solid #f5c518;
   border-radius: 3px;
   cursor: pointer;
   display: flex;
@@ -685,9 +679,8 @@ body {
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.1em;
-  color: #fff;
+  color: #f5c518;
   pointer-events: none;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
 }
 
 .rack-strip {
@@ -699,4 +692,27 @@ body {
   line-height: 1;
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+}
+
+/* ---------- Stage "View in 3D" button (top-right of the canvas) ---------- */
+.stage-3d-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.drag-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+.table-btn {
+  /* dragging affordance */
+  -webkit-user-drag: element;
+}
+.table-btn:active {
+  cursor: grabbing;
 }

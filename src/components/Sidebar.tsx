@@ -28,7 +28,6 @@ type Props = {
   onCycleBannerEdge: () => void;
   onToggleMarked: () => void;
   onClear: () => void;
-  onOpen3D: () => void;
   onToggleTapes: (v: boolean) => void;
   onMarkedAvgChange: (v: number) => void;
 };
@@ -51,7 +50,6 @@ export function Sidebar(props: Props) {
     onCycleBannerEdge,
     onToggleMarked,
     onClear,
-    onOpen3D,
     onToggleTapes,
     onMarkedAvgChange,
   } = props;
@@ -83,13 +81,22 @@ export function Sidebar(props: Props) {
         <h2>Add a Table</h2>
         <div className="table-buttons">
           {TABLE_KINDS.map((k) => (
-            <button key={k.id} className="table-btn" onClick={() => onAddItem(k.id)}>
+            <button
+              key={k.id}
+              className="table-btn"
+              onClick={() => onAddItem(k.id)}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', k.id);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
               <span className="swatch" style={{ background: k.color }} />
               <span className="meta">
                 <span className="name">{k.label} table</span>
                 <span className="sub">{k.widthFt * k.lengthFt} sq ft</span>
               </span>
-              <span className="plus">＋</span>
+              <span className="plus">⤢</span>
             </button>
           ))}
         </div>
@@ -99,7 +106,16 @@ export function Sidebar(props: Props) {
         <h2>Add a Display Prop</h2>
         <div className="table-buttons">
           {PROP_KINDS.map((k) => (
-            <button key={k.id} className="table-btn" onClick={() => onAddItem(k.id)}>
+            <button
+              key={k.id}
+              className="table-btn"
+              onClick={() => onAddItem(k.id)}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', k.id);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
               <span className="swatch prop-icon" style={{ background: k.color }}>
                 {k.prop === 'tv'
                   ? '📺'
@@ -115,10 +131,11 @@ export function Sidebar(props: Props) {
                   {k.widthFt}′ × {k.lengthFt}′ footprint
                 </span>
               </span>
-              <span className="plus">＋</span>
+              <span className="plus">⤢</span>
             </button>
           ))}
         </div>
+        <div className="drag-hint">Drag onto the plan, or click to drop it in.</div>
       </div>
 
       <div className="section">
@@ -305,15 +322,7 @@ export function Sidebar(props: Props) {
 
       <div className="section">
         <button
-          className="btn primary full"
-          onClick={onOpen3D}
-          disabled={layout.items.length === 0}
-        >
-          🎡 View in 3D
-        </button>
-        <button
           className="btn full"
-          style={{ marginTop: 8 }}
           onClick={onClear}
           disabled={layout.items.length === 0}
         >
