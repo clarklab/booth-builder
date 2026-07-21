@@ -13,6 +13,9 @@ export type PlacedItem = {
   // Table-only options:
   frontRack?: boolean; // leaned plywood display board on the front edge
   asMarked?: boolean; // premium "as marked" table ($7–$50 each)
+  rackSide?: number; // which table edge the rack sits on (0-3); default faces tent interior
+  // Banner-only:
+  bannerEdge?: number; // which tent edge it hangs on (0=front,1=right,2=back,3=left)
 };
 
 export type Layout = {

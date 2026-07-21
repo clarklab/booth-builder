@@ -617,3 +617,102 @@ body {
   text-align: right;
   outline: none;
 }
+
+/* ---------- Sell-through ladder ---------- */
+.ladder {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ladder-row {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ladder-row .pct {
+  font-variant-numeric: tabular-nums;
+}
+.ladder-row .bar {
+  height: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ladder-row .bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #2dd4bf, #34d399);
+}
+.ladder-row .amt {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.ladder-row.hi .pct,
+.ladder-row.hi .amt {
+  color: var(--good);
+}
+
+/* ---------- Banner (top-down strip on a tent edge) ---------- */
+.banner-strip {
+  position: absolute;
+  background: #0a0a0a;
+  border: 1px solid #f5c518;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.banner-strip.selected {
+  outline: 2px solid #fff;
+  box-shadow: 0 0 0 2px var(--accent);
+  z-index: 5;
+}
+.banner-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #f5c518;
+  pointer-events: none;
+}
+
+.rack-strip {
+  cursor: pointer;
+}
+
+.chair-emoji {
+  font-size: 22px;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+}
+
+/* ---------- Stage "View in 3D" button (top-right of the canvas) ---------- */
+.stage-3d-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 6;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.drag-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+.table-btn {
+  /* dragging affordance */
+  -webkit-user-drag: element;
+}
+.table-btn:active {
+  cursor: grabbing;
+}

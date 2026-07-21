@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
+  BANNER_HEIGHT_FT,
   IN_PER_FT,
   RACK_LEAN_DEG,
   RACK_ROWS,
@@ -12,26 +13,138 @@ import {
   VHS,
   itemKindById,
 } from '../domain/constants';
-import { packTable } from '../domain/packing';
-import { computeStats } from '../domain/layout';
+import {
+  computeStats,
+  defaultRackSide,
+  money,
+  propRestsOnTable,
+  tableFlatPlacements,
+  tableTypicalPrice,
+} from '../domain/layout';
 import type { Layout } from '../domain/types';
 
-// A palette of "VHS cover" colors for the mosaic.
-const COVERS = [
-  '#e2574c', '#f0a132', '#f7d154', '#4fb477', '#3a9dbf',
-  '#5b6ee1', '#8e5ad1', '#d264a8', '#c0392b', '#2c7873',
-  '#e08e45', '#6d8ea0', '#b5651d', '#7a9e3f', '#9b59b6',
-];
+// ---------- Procedural pixel-art "VHS cover" atlas ----------
+// Self-contained (no network / no licensing): each cell is a randomly
+// generated retro cover, heavily pixelated via NearestFilter. Tapes pick a
+// cell per-instance via an InstancedBufferAttribute + a tiny shader tweak.
+const COVER_COLS = 6;
+const COVER_ROWS = 5;
+const COVER_COUNT = COVER_COLS * COVER_ROWS;
+let _coverAtlas: THREE.CanvasTexture | null = null;
+
+function coverAtlas(): THREE.CanvasTexture {
+  if (_coverAtlas) return _coverAtlas;
+  const cell = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = COVER_COLS * cell;
+  canvas.height = COVER_ROWS * cell;
+  const ctx = canvas.getContext('2d')!;
+  for (let r = 0; r < COVER_ROWS; r++)
+    for (let c = 0; c < COVER_COLS; c++)
+      drawCover(ctx, c * cell, r * cell, cell, r * COVER_COLS + c);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _coverAtlas = tex;
+  return tex;
+}
+
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  seed: number,
+) {
+  let s = (seed * 2654435761) % 2147483647 || 12345;
+  const rnd = () => {
+    s = (s * 48271) % 2147483647;
+    return s / 2147483647;
+  };
+  const hue = Math.floor(rnd() * 360);
+  ctx.fillStyle = `hsl(${hue}, 55%, ${22 + Math.floor(rnd() * 16)}%)`;
+  ctx.fillRect(x, y, size, size);
+  const grid = 8;
+  const cs = size / grid;
+  const accent = Math.floor(rnd() * 360);
+  for (let i = 0; i < grid; i++)
+    for (let j = 0; j < grid; j++) {
+      if (rnd() < 0.5) {
+        const h = (accent + Math.floor(rnd() * 90) - 45 + 360) % 360;
+        ctx.fillStyle = `hsl(${h}, 78%, ${45 + Math.floor(rnd() * 35)}%)`;
+        ctx.fillRect(x + i * cs, y + j * cs, cs + 1, cs + 1);
+      }
+    }
+  // Title band + a bright "title" bar.
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  ctx.fillRect(x + size * 0.08, y + size * 0.7, size * 0.84, size * 0.18);
+  ctx.fillStyle = `hsl(${(accent + 180) % 360}, 85%, 72%)`;
+  ctx.fillRect(x + size * 0.12, y + size * 0.75, size * (0.25 + rnd() * 0.5), size * 0.06);
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x + 1, y + 1, size - 2, size - 2);
+}
+
+/** Scale a box geometry's UVs so each face maps to a single atlas cell. */
+function scaleCoverUV(geo: THREE.BufferGeometry) {
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++)
+    uv.setXY(i, uv.getX(i) / COVER_COLS, uv.getY(i) / COVER_ROWS);
+  uv.needsUpdate = true;
+}
+
+/** Material that offsets each instance's UV to a different atlas cell. */
+function coverMaterial(): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({
+    map: coverAtlas(),
+    roughness: 0.55,
+    metalness: 0.02,
+  });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader =
+      'attribute vec2 coverOffset;\n' +
+      shader.vertexShader.replace(
+        '#include <uv_vertex>',
+        '#include <uv_vertex>\n\tvMapUv += coverOffset;',
+      );
+  };
+  return mat;
+}
+
+/** Clone a cover-UV geometry and attach a per-instance atlas-cell offset. */
+function withCovers(
+  base: THREE.BufferGeometry,
+  count: number,
+  seed: number,
+): THREE.BufferGeometry {
+  const geo = base.clone();
+  const offs = new Float32Array(Math.max(count, 1) * 2);
+  for (let i = 0; i < count; i++) {
+    const idx = ((seed + i * 7) % COVER_COUNT + COVER_COUNT) % COVER_COUNT;
+    offs[i * 2] = (idx % COVER_COLS) / COVER_COLS;
+    offs[i * 2 + 1] = Math.floor(idx / COVER_COLS) / COVER_ROWS;
+  }
+  geo.setAttribute('coverOffset', new THREE.InstancedBufferAttribute(offs, 2));
+  return geo;
+}
 
 type Props = {
   layout: Layout;
+  markedAvg: number;
+  selectedUid: string | null;
+  onSelect: (uid: string | null) => void;
   onClose: () => void;
 };
 
 type Disposable = { dispose: () => void };
 
-export function Scene3D({ layout, onClose }: Props) {
+export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
+  // Camera pose persists across scene rebuilds (rotate/select) so the view
+  // doesn't snap back. Reset naturally when the overlay unmounts/remounts.
+  const poseRef = useRef<{ pos: [number, number, number]; tgt: [number, number, number] } | null>(null);
   const stats = useMemo(() => computeStats(layout), [layout]);
 
   useEffect(() => {
@@ -45,7 +158,8 @@ export function Scene3D({ layout, onClose }: Props) {
     scene.fog = new THREE.Fog('#0a1120', 30, 90);
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 500);
-    camera.position.set(tentFt * 1.1, tentFt * 1.05, tentFt * 1.35);
+    if (poseRef.current) camera.position.set(...poseRef.current.pos);
+    else camera.position.set(tentFt * 1.1, tentFt * 1.05, tentFt * 1.35);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -60,7 +174,8 @@ export function Scene3D({ layout, onClose }: Props) {
     controls.minDistance = 3;
     controls.maxDistance = 80;
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
-    controls.target.set(0, TABLE_TOP_HEIGHT_IN / IN_PER_FT, 0);
+    if (poseRef.current) controls.target.set(...poseRef.current.tgt);
+    else controls.target.set(0, TABLE_TOP_HEIGHT_IN / IN_PER_FT, 0);
 
     // Lighting
     scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -104,22 +219,48 @@ export function Scene3D({ layout, onClose }: Props) {
 
     const flatGeo = new THREE.BoxGeometry(faceLong * 0.94, tapeThick, faceShort * 0.94);
     const standGeo = new THREE.BoxGeometry(faceShort * 0.9, faceLong * 0.9, tapeThick * 0.9);
-    const tapeMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.05 });
-    const disposables: Disposable[] = [flatGeo, standGeo, tapeMat];
+    scaleCoverUV(flatGeo);
+    scaleCoverUV(standGeo);
+    const coverMat = coverMaterial();
+    const disposables: Disposable[] = [flatGeo, standGeo, coverMat];
     const cursor = { n: 0 };
-    const color = new THREE.Color();
     const dummy = new THREE.Object3D();
+    const statsInner = computeStats(layout);
+    const updaters: (() => void)[] = []; // per-frame animations (e.g. TV static)
+
+    const addSelBox = (obj: THREE.Object3D) => {
+      const bh = new THREE.BoxHelper(obj, 0x38bdf8);
+      const m = bh.material as THREE.LineBasicMaterial;
+      m.depthTest = false;
+      m.transparent = true;
+      bh.renderOrder = 998;
+      scene.add(bh);
+      disposables.push(bh);
+    };
 
     for (const item of layout.items) {
       const kind = itemKindById(item.kindId);
+      const isSel = item.uid === selectedUid;
+      if (kind.prop === 'banner') {
+        buildBanner(scene, tentFt, item.bannerEdge ?? 0, item.uid, isSel, disposables);
+        continue;
+      }
       const group = new THREE.Group();
       group.position.set(item.xFt - tentFt / 2, 0, item.yFt - tentFt / 2);
       group.rotation.y = (-item.rotation * Math.PI) / 180;
+      group.userData.uid = item.uid;
       scene.add(group);
 
       if (kind.category !== 'table') {
-        if (kind.prop === 'tv') buildTV(group, disposables);
-        else if (kind.prop === 'vinyl') buildVinyl(group, disposables, cursor, color);
+        if (kind.prop === 'chair') {
+          buildChair(group, disposables); // always on the ground
+        } else {
+          // TV / vinyl: rest on a tabletop if over a table, else the floor.
+          const baseY = propRestsOnTable(item, layout) ? tableTopY : 0;
+          if (kind.prop === 'tv') buildTV(group, baseY, disposables, updaters);
+          else if (kind.prop === 'vinyl') buildVinyl(group, baseY, disposables, coverMat, cursor);
+        }
+        if (isSel) addSelBox(group);
         continue;
       }
 
@@ -154,15 +295,15 @@ export function Scene3D({ layout, onClose }: Props) {
       }
       disposables.push(legGeo, legMat);
 
-      // Flat tapes on top
-      const pack = packTable(
-        widthFt * IN_PER_FT, lengthFt * IN_PER_FT, VHS.longIn, VHS.shortIn,
-      );
-      const inst = new THREE.InstancedMesh(flatGeo, tapeMat, pack.count);
+      // Flat tapes on top (with tapes under any prop removed)
+      const placements = tableFlatPlacements(item, layout);
+      const flatCovered = withCovers(flatGeo, placements.length, cursor.n);
+      cursor.n += placements.length;
+      const inst = new THREE.InstancedMesh(flatCovered, coverMat, placements.length);
       inst.castShadow = true;
       inst.receiveShadow = true;
-      for (let i = 0; i < pack.placements.length; i++) {
-        const p = pack.placements[i];
+      for (let i = 0; i < placements.length; i++) {
+        const p = placements[i];
         dummy.position.set(
           (p.x + p.w / 2) / IN_PER_FT - lengthFt / 2,
           tableTopY + tapeThick / 2,
@@ -171,27 +312,78 @@ export function Scene3D({ layout, onClose }: Props) {
         dummy.rotation.set(0, p.rotated ? Math.PI / 2 : 0, 0);
         dummy.updateMatrix();
         inst.setMatrixAt(i, dummy.matrix);
-        color.set(COVERS[(cursor.n++ * 7) % COVERS.length]);
-        inst.setColorAt(i, color);
       }
       inst.instanceMatrix.needsUpdate = true;
-      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
       group.add(inst);
-      disposables.push(inst);
+      disposables.push(inst, flatCovered);
 
-      // Front rack
+      // Front rack (on the chosen edge)
       if (item.frontRack) {
+        const side = item.rackSide ?? defaultRackSide(item, layout);
+        const onLongEdge = side === 0 || side === 2;
         buildRack(group, {
-          lengthFt, widthFt, tableTopY, standGeo, tapeMat,
-          faceShort, faceLong, disposables, cursor, color, dummy,
+          edgeLen: onLongEdge ? lengthFt : widthFt,
+          halfDepth: onLongEdge ? widthFt / 2 : lengthFt / 2,
+          yaw: [0, Math.PI / 2, Math.PI, -Math.PI / 2][side],
+          tableTopY, standGeo, coverMat, faceShort, disposables, cursor, dummy,
         });
+      }
+
+      // Selection box hugs the table (added before the tall price label).
+      if (isSel) addSelBox(group);
+
+      // Hovering, camera-facing price label
+      const stat = statsInner.perTable.find((p) => p.uid === item.uid);
+      if (stat) {
+        const sprite = makeLabelSprite(
+          money(tableTypicalPrice(stat, markedAvg)),
+          `${stat.tapes} tapes`,
+          disposables,
+        );
+        sprite.position.set(0, tableTopY + 2.6, 0);
+        group.add(sprite);
       }
     }
 
+    // Click-to-pick selection (distinguish a click from an orbit drag).
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let downX = 0, downY = 0;
+    const onPointerDownPick = (e: PointerEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+    };
+    const onPointerUpPick = (e: PointerEvent) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      ray.setFromCamera(ndc, camera);
+      const hits = ray.intersectObjects(scene.children, true);
+      let uid: string | null = null;
+      for (const h of hits) {
+        let o: THREE.Object3D | null = h.object;
+        while (o) {
+          if (o.userData && o.userData.uid) { uid = o.userData.uid as string; break; }
+          o = o.parent;
+        }
+        if (uid) break;
+      }
+      onSelect(uid);
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDownPick);
+    renderer.domElement.addEventListener('pointerup', onPointerUpPick);
+
     // Render loop
     let raf = 0;
+    let frame = 0;
     const animate = () => {
       controls.update();
+      poseRef.current = {
+        pos: [camera.position.x, camera.position.y, camera.position.z],
+        tgt: [controls.target.x, controls.target.y, controls.target.z],
+      };
+      if ((frame++ & 1) === 0) for (const u of updaters) u(); // ~30fps static
       renderer.render(scene, camera);
       raf = requestAnimationFrame(animate);
     };
@@ -210,6 +402,8 @@ export function Scene3D({ layout, onClose }: Props) {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onPointerDownPick);
+      renderer.domElement.removeEventListener('pointerup', onPointerUpPick);
       controls.dispose();
       for (const d of disposables) d.dispose();
       scene.traverse((o) => {
@@ -222,7 +416,7 @@ export function Scene3D({ layout, onClose }: Props) {
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
-  }, [layout]);
+  }, [layout, markedAvg, selectedUid, onSelect]);
 
   return (
     <div className="overlay">
@@ -237,7 +431,8 @@ export function Scene3D({ layout, onClose }: Props) {
       </div>
       <div className="overlay-canvas" ref={mountRef}>
         <div className="overlay-hint">
-          drag to orbit · scroll to zoom · right-drag to pan
+          click an item to select · R rotate · F front rack · Del remove · drag
+          to orbit · scroll to zoom
         </div>
       </div>
     </div>
@@ -248,11 +443,11 @@ export function Scene3D({ layout, onClose }: Props) {
 function buildRack(
   parent: THREE.Group,
   o: {
-    lengthFt: number; widthFt: number; tableTopY: number;
-    standGeo: THREE.BoxGeometry; tapeMat: THREE.MeshStandardMaterial;
-    faceShort: number; faceLong: number;
+    edgeLen: number; halfDepth: number; yaw: number; tableTopY: number;
+    standGeo: THREE.BoxGeometry; coverMat: THREE.MeshStandardMaterial;
+    faceShort: number;
     disposables: Disposable[]; cursor: { n: number };
-    color: THREE.Color; dummy: THREE.Object3D;
+    dummy: THREE.Object3D;
   },
 ) {
   const lean = (RACK_LEAN_DEG * Math.PI) / 180;
@@ -260,15 +455,20 @@ function buildRack(
   const baseOut = o.tableTopY * Math.tan(lean);
   const boardThick = 0.06;
 
+  // Holder orients the canonical rack (leaning out toward +z) to the chosen edge.
+  const holder = new THREE.Group();
+  holder.rotation.y = o.yaw;
+  parent.add(holder);
+
   const rack = new THREE.Group();
-  rack.position.set(0, o.tableTopY / 2, o.widthFt / 2 + baseOut / 2);
+  rack.position.set(0, o.tableTopY / 2, o.halfDepth + baseOut / 2);
   rack.rotation.x = -lean;
-  parent.add(rack);
+  holder.add(rack);
 
   // Plywood board
   const boardMat = new THREE.MeshStandardMaterial({ color: '#b98a4b', roughness: 0.85 });
   const board = new THREE.Mesh(
-    new THREE.BoxGeometry(o.lengthFt, slope, boardThick),
+    new THREE.BoxGeometry(o.edgeLen, slope, boardThick),
     boardMat,
   );
   board.castShadow = true;
@@ -277,10 +477,12 @@ function buildRack(
   o.disposables.push(board.geometry, boardMat);
 
   // Standing tapes, face-out, RACK_ROWS rows
-  const perRow = Math.floor(o.lengthFt / o.faceShort);
+  const perRow = Math.floor(o.edgeLen / o.faceShort);
   if (perRow < 1) return;
   const count = perRow * RACK_ROWS;
-  const inst = new THREE.InstancedMesh(o.standGeo, o.tapeMat, count);
+  const geo = withCovers(o.standGeo, count, o.cursor.n);
+  o.cursor.n += count;
+  const inst = new THREE.InstancedMesh(geo, o.coverMat, count);
   inst.castShadow = true;
   const usedW = perRow * o.faceShort;
   const rowPitch = slope / RACK_ROWS;
@@ -294,53 +496,117 @@ function buildRack(
       o.dummy.rotation.set(0, 0, 0);
       o.dummy.updateMatrix();
       inst.setMatrixAt(idx, o.dummy.matrix);
-      o.color.set(COVERS[(o.cursor.n++ * 7) % COVERS.length]);
-      inst.setColorAt(idx, o.color);
       idx++;
     }
   }
   inst.instanceMatrix.needsUpdate = true;
-  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   rack.add(inst);
-  o.disposables.push(inst);
+  o.disposables.push(inst, geo);
 }
 
-// ---------- CRT TV on a stand ----------
-function buildTV(parent: THREE.Group, disposables: Disposable[]) {
-  const standH = 1.6;
-  const standMat = new THREE.MeshStandardMaterial({ color: '#33415a', roughness: 0.7 });
-  const stand = new THREE.Mesh(new THREE.BoxGeometry(1.5, standH, 1.4), standMat);
-  stand.position.y = standH / 2;
-  stand.castShadow = true;
-  stand.receiveShadow = true;
-  parent.add(stand);
-  disposables.push(stand.geometry, standMat);
-
-  // CRT body (deeper at the back)
+// ---------- CRT TV (sits on the given surface height) ----------
+function buildTV(
+  parent: THREE.Group,
+  baseY: number,
+  disposables: Disposable[],
+  updaters: (() => void)[],
+) {
+  const bodyH = 1.35;
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#9ca3af', roughness: 0.6 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.35, 1.4), bodyMat);
-  body.position.y = standH + 0.7;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, bodyH, 1.4), bodyMat);
+  body.position.y = baseY + bodyH / 2;
   body.castShadow = true;
+  body.receiveShadow = true;
   parent.add(body);
   disposables.push(body.geometry, bodyMat);
 
-  // Screen (slightly emissive, faces +z / front)
+  // Screen showing faint animated static (looks powered on).
+  const NW = 64, NH = 48;
+  const canvas = document.createElement('canvas');
+  canvas.width = NW;
+  canvas.height = NH;
+  const nctx = canvas.getContext('2d')!;
+  const img = nctx.createImageData(NW, NH);
+  const drawNoise = () => {
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // Dim grey noise → subtle, not a blinding white screen.
+      const v = 24 + Math.floor(Math.random() * 90);
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    nctx.putImageData(img, 0, 0);
+  };
+  drawNoise();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
   const screenMat = new THREE.MeshStandardMaterial({
-    color: '#0b1a2a', emissive: '#12324f', emissiveIntensity: 0.6, roughness: 0.2,
+    color: '#050608',
+    map: tex,
+    emissive: 0xaec4dd,
+    emissiveMap: tex,
+    emissiveIntensity: 0.45,
+    roughness: 0.35,
   });
   const screen = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.0, 0.06), screenMat);
-  screen.position.set(0, standH + 0.72, 0.72);
+  screen.position.set(0, baseY + bodyH / 2 + 0.02, 0.72);
   parent.add(screen);
-  disposables.push(screen.geometry, screenMat);
+  disposables.push(screen.geometry, screenMat, tex);
+  updaters.push(() => {
+    drawNoise();
+    tex.needsUpdate = true;
+  });
+}
+
+// ---------- Folding chair (sits on the ground) ----------
+function buildChair(parent: THREE.Group, disposables: Disposable[]) {
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: '#374151', roughness: 0.5, metalness: 0.5,
+  });
+  const seatMat = new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.85 });
+  const seatY = 1.45;
+  const seatW = 1.4;
+
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(seatW, 0.09, seatW), seatMat);
+  seat.position.set(0, seatY, 0.1);
+  seat.castShadow = true;
+  seat.receiveShadow = true;
+  parent.add(seat);
+  disposables.push(seat.geometry);
+
+  const back = new THREE.Mesh(new THREE.BoxGeometry(seatW, 1.3, 0.09), seatMat);
+  back.position.set(0, seatY + 0.62, -0.58);
+  back.castShadow = true;
+  parent.add(back);
+  disposables.push(back.geometry);
+
+  const legGeo = new THREE.BoxGeometry(0.07, seatY, 0.07);
+  const lx = seatW / 2 - 0.12;
+  for (const [x, z] of [
+    [lx, 0.58], [-lx, 0.58], [lx, -0.5], [-lx, -0.5],
+  ] as [number, number][]) {
+    const leg = new THREE.Mesh(legGeo, frameMat);
+    leg.position.set(x, seatY / 2, z);
+    leg.castShadow = true;
+    parent.add(leg);
+  }
+  disposables.push(legGeo, frameMat, seatMat);
 }
 
 // ---------- Vinyl display (crate of records) ----------
 function buildVinyl(
   parent: THREE.Group,
+  baseY: number,
   disposables: Disposable[],
+  coverMat: THREE.MeshStandardMaterial,
   cursor: { n: number },
-  color: THREE.Color,
 ) {
+  const g = new THREE.Group();
+  g.position.y = baseY;
+  parent.add(g);
   const crateMat = new THREE.MeshStandardMaterial({ color: '#7c5a3a', roughness: 0.85 });
   const w = 2, d = 2, h = 1.2, t = 0.08;
   const parts: [number, number, number, number, number, number][] = [
@@ -356,17 +622,20 @@ function buildVinyl(
     m.position.set(px, py, pz);
     m.castShadow = true;
     m.receiveShadow = true;
-    parent.add(m);
+    g.add(m);
     disposables.push(m.geometry);
   }
   disposables.push(crateMat);
 
   // Album sleeves standing in the crate, leaning slightly, front to back.
   const sleeve = 1.1; // ~12" covers
-  const sleeveGeo = new THREE.BoxGeometry(sleeve, sleeve, 0.05);
-  const sleeveMat = new THREE.MeshStandardMaterial({ roughness: 0.7 });
+  const sleeveBase = new THREE.BoxGeometry(sleeve, sleeve, 0.05);
+  scaleCoverUV(sleeveBase);
   const n = 12;
-  const inst = new THREE.InstancedMesh(sleeveGeo, sleeveMat, n);
+  const sleeveGeo = withCovers(sleeveBase, n, cursor.n);
+  cursor.n += n;
+  sleeveBase.dispose();
+  const inst = new THREE.InstancedMesh(sleeveGeo, coverMat, n);
   inst.castShadow = true;
   const dummy = new THREE.Object3D();
   for (let i = 0; i < n; i++) {
@@ -375,13 +644,161 @@ function buildVinyl(
     dummy.rotation.set(-0.12, 0, 0); // slight lean
     dummy.updateMatrix();
     inst.setMatrixAt(i, dummy.matrix);
-    color.set(COVERS[(cursor.n++ * 5 + 2) % COVERS.length]);
-    inst.setColorAt(i, color);
   }
   inst.instanceMatrix.needsUpdate = true;
-  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-  parent.add(inst);
-  disposables.push(inst, sleeveGeo, sleeveMat);
+  g.add(inst);
+  disposables.push(inst, sleeveGeo);
+}
+
+// ---------- Banner hung at the top of the poles ----------
+function buildBanner(
+  scene: THREE.Scene,
+  tentFt: number,
+  edge: number,
+  uid: string,
+  selected: boolean,
+  disposables: Disposable[],
+) {
+  const half = tentFt / 2;
+  const H = BANNER_HEIGHT_FT;
+  const yCenter = TENT_EAVE_FT - H / 2; // top flush with the eave (pole tops)
+  const thick = 0.05;
+  const spanX = edge === 0 || edge === 2;
+
+  // Red backing box (gives the banner thickness / a shadow).
+  const geo = spanX
+    ? new THREE.BoxGeometry(tentFt, H, thick)
+    : new THREE.BoxGeometry(thick, H, tentFt);
+  const mat = new THREE.MeshStandardMaterial({ color: '#0a0a0a', roughness: 0.8 });
+  const banner = new THREE.Mesh(geo, mat);
+  const pos: [number, number, number] =
+    edge === 0 ? [0, yCenter, half]
+      : edge === 2 ? [0, yCenter, -half]
+        : edge === 1 ? [half, yCenter, 0]
+          : [-half, yCenter, 0];
+  banner.position.set(...pos);
+  banner.castShadow = true;
+  banner.userData.uid = uid;
+  scene.add(banner);
+  disposables.push(geo, mat);
+
+  // Printed "VHSgarage.com" on BOTH faces (unlit, so it stays crisp and
+  // legible and reads correctly from either side).
+  const tex = makeBannerTexture(tentFt);
+  const printMat = new THREE.MeshBasicMaterial({ map: tex });
+  const out = thick / 2 + 0.02;
+  const mkFace = (x: number, z: number, ry: number) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(tentFt, H), printMat);
+    m.position.set(x, yCenter, z);
+    m.rotation.y = ry;
+    m.userData.uid = uid;
+    scene.add(m);
+    disposables.push(m.geometry);
+  };
+  if (spanX) {
+    mkFace(pos[0], pos[2] + out, 0);
+    mkFace(pos[0], pos[2] - out, Math.PI);
+  } else {
+    mkFace(pos[0] + out, pos[2], Math.PI / 2);
+    mkFace(pos[0] - out, pos[2], -Math.PI / 2);
+  }
+  disposables.push(printMat, tex);
+
+  if (selected) {
+    const bh = new THREE.BoxHelper(banner, 0x38bdf8);
+    const bm = bh.material as THREE.LineBasicMaterial;
+    bm.depthTest = false;
+    bh.renderOrder = 998;
+    scene.add(bh);
+    disposables.push(bh);
+  }
+}
+
+/** Canvas texture for the banner: red field with big "VHSgarage.com". */
+function makeBannerTexture(tentFt: number): THREE.CanvasTexture {
+  const texH = 220;
+  const texW = Math.round(tentFt * 130);
+  const canvas = document.createElement('canvas');
+  canvas.width = texW;
+  canvas.height = texH;
+  const ctx = canvas.getContext('2d')!;
+  const gold = '#f5c518';
+  ctx.fillStyle = '#0a0a0a'; // black background
+  ctx.fillRect(0, 0, texW, texH);
+  // Gold accent bars top & bottom.
+  ctx.fillStyle = gold;
+  ctx.fillRect(0, 0, texW, texH * 0.07);
+  ctx.fillRect(0, texH * 0.93, texW, texH * 0.07);
+  // Fit the title to ~92% of the width.
+  const text = 'VHSgarage.com';
+  let size = texH * 0.6;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  do {
+    ctx.font = `900 ${size}px Arial, Helvetica, sans-serif`;
+    if (ctx.measureText(text).width <= texW * 0.92) break;
+    size -= 4;
+  } while (size > 12);
+  ctx.font = `900 ${size}px Arial, Helvetica, sans-serif`;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = size * 0.06;
+  ctx.strokeText(text, texW / 2, texH * 0.52);
+  ctx.fillStyle = gold; // gold-yellow text
+  ctx.fillText(text, texW / 2, texH * 0.52);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ---------- Camera-facing price label ----------
+function makeLabelSprite(
+  price: string,
+  sub: string,
+  disposables: Disposable[],
+): THREE.Sprite {
+  const W = 320, H = 150;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  const round = (x: number, y: number, w: number, h: number, r: number) => {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  };
+  ctx.fillStyle = 'rgba(11,17,32,0.9)';
+  round(8, 8, W - 16, H - 16, 22);
+  ctx.fill();
+  ctx.strokeStyle = '#34d399';
+  ctx.lineWidth = 4;
+  round(8, 8, W - 16, H - 16, 22);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#34d399';
+  ctx.font = 'bold 66px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillText(price, W / 2, H / 2 - 14);
+  ctx.fillStyle = '#9fb1c9';
+  ctx.font = '30px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillText(sub, W / 2, H / 2 + 40);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  const mat = new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthTest: false, depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(2.6, 1.22, 1);
+  sprite.renderOrder = 999;
+  disposables.push(tex, mat);
+  return sprite;
 }
 
 // ---------- Tent ----------

@@ -2,6 +2,7 @@ import {
   MARKED_MAX_PRICE,
   MARKED_MIN_PRICE,
   PROP_KINDS,
+  SELL_THROUGH_LEVELS,
   TABLE_KINDS,
   TENT_SIZES,
   itemKindById,
@@ -23,9 +24,10 @@ type Props = {
   onDuplicate: () => void;
   onDelete: () => void;
   onToggleRack: () => void;
+  onCycleRackSide: () => void;
+  onCycleBannerEdge: () => void;
   onToggleMarked: () => void;
   onClear: () => void;
-  onOpen3D: () => void;
   onToggleTapes: (v: boolean) => void;
   onMarkedAvgChange: (v: number) => void;
 };
@@ -44,9 +46,10 @@ export function Sidebar(props: Props) {
     onDuplicate,
     onDelete,
     onToggleRack,
+    onCycleRackSide,
+    onCycleBannerEdge,
     onToggleMarked,
     onClear,
-    onOpen3D,
     onToggleTapes,
     onMarkedAvgChange,
   } = props;
@@ -55,6 +58,7 @@ export function Sidebar(props: Props) {
   const selectedKind = selected ? itemKindById(selected.kindId) : null;
   const selectedStat = stats.perTable.find((p) => p.uid === selectedUid);
   const selectedIsTable = selected ? isTable(selected) : false;
+  const selectedIsBanner = selectedKind?.prop === 'banner';
 
   return (
     <aside className="sidebar">
@@ -77,13 +81,22 @@ export function Sidebar(props: Props) {
         <h2>Add a Table</h2>
         <div className="table-buttons">
           {TABLE_KINDS.map((k) => (
-            <button key={k.id} className="table-btn" onClick={() => onAddItem(k.id)}>
+            <button
+              key={k.id}
+              className="table-btn"
+              onClick={() => onAddItem(k.id)}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', k.id);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
               <span className="swatch" style={{ background: k.color }} />
               <span className="meta">
                 <span className="name">{k.label} table</span>
                 <span className="sub">{k.widthFt * k.lengthFt} sq ft</span>
               </span>
-              <span className="plus">＋</span>
+              <span className="plus">⤢</span>
             </button>
           ))}
         </div>
@@ -93,9 +106,24 @@ export function Sidebar(props: Props) {
         <h2>Add a Display Prop</h2>
         <div className="table-buttons">
           {PROP_KINDS.map((k) => (
-            <button key={k.id} className="table-btn" onClick={() => onAddItem(k.id)}>
+            <button
+              key={k.id}
+              className="table-btn"
+              onClick={() => onAddItem(k.id)}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', k.id);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+            >
               <span className="swatch prop-icon" style={{ background: k.color }}>
-                {k.prop === 'tv' ? '📺' : '🎵'}
+                {k.prop === 'tv'
+                  ? '📺'
+                  : k.prop === 'vinyl'
+                    ? '🎵'
+                    : k.prop === 'banner'
+                      ? '🚩'
+                      : '🪑'}
               </span>
               <span className="meta">
                 <span className="name">{k.label}</span>
@@ -103,10 +131,11 @@ export function Sidebar(props: Props) {
                   {k.widthFt}′ × {k.lengthFt}′ footprint
                 </span>
               </span>
-              <span className="plus">＋</span>
+              <span className="plus">⤢</span>
             </button>
           ))}
         </div>
+        <div className="drag-hint">Drag onto the plan, or click to drop it in.</div>
       </div>
 
       <div className="section">
@@ -125,13 +154,25 @@ export function Sidebar(props: Props) {
               </div>
             )}
             <div className="row">
-              <button className="btn full" onClick={onRotate}>
-                ⟲ Rotate 90°
-              </button>
+              {selectedIsBanner ? (
+                <button className="btn full" onClick={onCycleBannerEdge}>
+                  ⟲ Next tent edge
+                </button>
+              ) : (
+                <button className="btn full" onClick={onRotate}>
+                  ⟲ Rotate 90°
+                </button>
+              )}
               <button className="btn full" onClick={onDuplicate}>
                 ⧉ Duplicate
               </button>
             </div>
+            {selectedIsBanner && (
+              <div className="hint">
+                Hangs at the top of the poles. Click it on the plan to move it
+                around the tent edges.
+              </div>
+            )}
 
             {selectedIsTable && (
               <>
@@ -145,6 +186,12 @@ export function Sidebar(props: Props) {
                     Front rack <span className="muted">(leaned display board)</span>
                   </span>
                 </label>
+                {selected.frontRack && (
+                  <button className="btn full" onClick={onCycleRackSide}>
+                    ⟲ Move rack to next edge
+                    <span className="muted"> (or click it on the plan)</span>
+                  </button>
+                )}
                 <label className="toggle">
                   <input
                     type="checkbox"
@@ -219,12 +266,23 @@ export function Sidebar(props: Props) {
       <div className="section">
         <h2>Revenue Estimate</h2>
         <div className="stat-big money">
-          <div className="num">{money(pricing.typical)}</div>
-          <div className="lbl">typical gross if it all sells</div>
-          <div className="range">
-            range {money(pricing.low)} – {money(pricing.high)}
-          </div>
+          <div className="num">{money(pricing.typical * 0.5)}</div>
+          <div className="lbl">est. at 50% sell-through</div>
+          <div className="range">if all sells: {money(pricing.typical)}</div>
         </div>
+
+        <div className="ladder">
+          {SELL_THROUGH_LEVELS.map((f) => (
+            <div className={`ladder-row${f === 0.5 ? ' hi' : ''}`} key={f}>
+              <span className="pct">{f === 1 ? 'All' : `${Math.round(f * 100)}%`}</span>
+              <span className="bar">
+                <span style={{ width: `${f * 100}%` }} />
+              </span>
+              <span className="amt">{money(pricing.typical * f)}</span>
+            </div>
+          ))}
+        </div>
+
         <div className="price-lines">
           <div className="line">
             <span>{stats.standardTapes} standard tapes</span>
@@ -264,15 +322,7 @@ export function Sidebar(props: Props) {
 
       <div className="section">
         <button
-          className="btn primary full"
-          onClick={onOpen3D}
-          disabled={layout.items.length === 0}
-        >
-          🎡 View in 3D
-        </button>
-        <button
           className="btn full"
-          style={{ marginTop: 8 }}
           onClick={onClear}
           disabled={layout.items.length === 0}
         >
