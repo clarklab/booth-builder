@@ -38,6 +38,11 @@ export function itemWorldAABB(item: PlacedItem): Rect {
   };
 }
 
+/** Do two items' footprints overlap? */
+export function itemsOverlap(a: PlacedItem, b: PlacedItem): boolean {
+  return rectsOverlap(itemWorldAABB(a), itemWorldAABB(b));
+}
+
 /** Does a prop sit on top of a table (i.e. overlaps any table footprint)? */
 export function propRestsOnTable(prop: PlacedItem, layout: Layout): boolean {
   const pr = itemWorldAABB(prop);

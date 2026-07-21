@@ -12,6 +12,7 @@ import {
   computeStats,
   defaultRackSide,
   isTable,
+  itemsOverlap,
   rackSideOf,
 } from './domain/layout';
 import {
@@ -91,11 +92,36 @@ export function App() {
 
   const rotateSelected = () => {
     if (!selectedUid) return;
+    const sel = layout.items.find((t) => t.uid === selectedUid);
+    if (!sel) return;
+
+    // Rotating a table carries any TV/vinyl resting on it, so they stay put
+    // relative to the table instead of being stranded on the floor.
+    const carried = new Set<string>();
+    if (isTable(sel)) {
+      for (const it of layout.items) {
+        const p = itemKindById(it.kindId).prop;
+        if ((p === 'tv' || p === 'vinyl') && itemsOverlap(it, sel)) carried.add(it.uid);
+      }
+    }
+    const cx = sel.xFt;
+    const cy = sel.yFt;
+
     update((l) => ({
       ...l,
-      items: l.items.map((t) =>
-        t.uid === selectedUid ? { ...t, rotation: (t.rotation + 90) % 360 } : t,
-      ),
+      items: l.items.map((t) => {
+        if (t.uid === sel.uid) return { ...t, rotation: (t.rotation + 90) % 360 };
+        if (carried.has(t.uid)) {
+          // Rotate the prop's position 90° clockwise about the table center.
+          return {
+            ...t,
+            xFt: cx - (t.yFt - cy),
+            yFt: cy + (t.xFt - cx),
+            rotation: (t.rotation + 90) % 360,
+          };
+        }
+        return t;
+      }),
     }));
   };
 
