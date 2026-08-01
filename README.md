@@ -1,8 +1,17 @@
-# 📼 Booth Builder
+# 📼 VHS Garage
 
-A swap-meet booth layout planner. Lay out your pop-up tent and tables to
-scale on a top-down floor plan, then jump into a 3D view to see the whole
-booth — including how many **VHS tapes** fit face-up on your tables.
+Two tools for running a VHS booth, behind one home screen:
+
+- **Booth Builder** — lay out your pop-up tent and tables to scale on a
+  top-down floor plan, then jump into a 3D view to see the whole booth,
+  including how many **VHS tapes** fit face-up on your tables.
+- **Forecaster** — tap through your year (shows, custom VHS releases, T-shirt
+  runs) and see what it makes. When you're done it hands you a booth layout
+  built to hit your per-show number.
+
+---
+
+# Booth Builder
 
 ## What it does
 
@@ -74,7 +83,53 @@ npm run preview  # preview the production build
 
 - **Vite + React + TypeScript** for the app and 2D editor
 - **Three.js** for the 3D scene (instanced meshes for the tapes)
+- Hash routing (`#/`, `#/booth`, `#/forecast`) — no router dependency
 - No backend — everything runs in the browser
+
+---
+
+# Forecaster
+
+A four-step, tap-and-go wizard for planning the year. It saves to
+localStorage separately from your booth layout.
+
+1. **Shows** — how many you'll be at, what you want to take home from each
+   one, how busy the crowd is (10 / 25 / 50% of the display moves), and what
+   a show costs you in booth fees and gas.
+2. **VHS releases** — tap a run size (25 / 50 / 100 tapes) to add a release,
+   then adjust the quantity, what each one costs to make, what you sell it
+   for, and how much of the run you expect to move. Make them for $5, sell
+   them for $20 — the margin math is right there on the card.
+3. **T-shirts** — same flow, different presets (24 / 50 / 100 shirts).
+4. **Your year** — projected profit, profit per show, units sold, which show
+   you break even on, and what's left in unsold stock, plus a bar breakdown
+   of every dollar in and out.
+
+Merch is costed the way it actually works: you pay for the **whole run** up
+front, and only the units that sell pay you back. Unsold units are counted as
+inventory at cost, not as a loss.
+
+## From a number to a booth
+
+The Forecaster's last step ends with **"Open this booth in the Builder"**.
+Say you want **$200 out of a show** — it hands you a floor plan already set
+up to do it: the right tent size, the right tables, front racks where they
+help, and a premium "as marked" table when the standard 3-for-$10 bins can't
+get there on their own.
+
+Under the hood (`src/domain/autoLayout.ts`) it scores a ladder of hand-laid
+booth shapes — one table, L-shape, U-shape, wide U, U-with-an-island, each
+with and without front racks and with 0–N "as marked" tables — using the same
+pricing math the Booth Builder shows in its sidebar. It picks the **smallest**
+booth whose take at your crowd level clears your target, so you don't haul
+four tables to a show that only needs one. If even a maxed-out 12′ canopy
+can't reach the number, it says so instead of pretending.
+
+Tables and racks in every generated shape are laid out to fit inside the
+canopy without overlapping, and racks face outward so customers can browse
+them.
+
+---
 
 ## Deploying to Netlify
 
