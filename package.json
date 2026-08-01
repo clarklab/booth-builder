@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Swap-meet booth layout builder: plan pop-up tent + table layouts and see how many VHS tapes fit.",
+  "description": "VHS Garage: a swap-meet booth layout builder plus a year forecaster for shows, custom VHS releases, and T-shirt runs.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

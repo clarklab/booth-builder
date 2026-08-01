@@ -13,8 +13,10 @@ import {
   defaultRackSide,
   isTable,
   itemsOverlap,
+  money,
   rackSideOf,
 } from './domain/layout';
+import type { BoothBuild } from './domain/autoLayout';
 import {
   defaultLayout,
   loadLayout,
@@ -24,12 +26,20 @@ import {
   type PlacedItem,
 } from './domain/types';
 
-export function App() {
-  const [layout, setLayout] = useState<Layout>(() => loadLayout());
+type AppProps = {
+  /** A booth handed over from the Forecaster; replaces the saved layout. */
+  seed?: BoothBuild | null;
+  onHome?: () => void;
+  onForecast?: () => void;
+};
+
+export function App({ seed, onHome, onForecast }: AppProps = {}) {
+  const [layout, setLayout] = useState<Layout>(() => seed?.layout ?? loadLayout());
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
   const [showTapes, setShowTapes] = useState(true);
   const [show3D, setShow3D] = useState(false);
   const [markedAvg, setMarkedAvg] = useState(MARKED_DEFAULT_AVG);
+  const [seedNote, setSeedNote] = useState(!!seed);
 
   const stats = useMemo(() => computeStats(layout), [layout]);
   const pricing = useMemo(() => computePricing(stats, markedAvg), [stats, markedAvg]);
@@ -219,15 +229,39 @@ export function App() {
   return (
     <div className="app">
       <header className="header">
+        {onHome && (
+          <button className="btn ghost back" onClick={onHome}>
+            ← Home
+          </button>
+        )}
         <span className="logo">📼</span>
         <h1>Booth Builder</h1>
         <span className="tag">swap-meet layout planner</span>
         <div className="spacer" />
+        {onForecast && (
+          <button className="btn ghost" onClick={onForecast}>
+            📈 Forecaster
+          </button>
+        )}
         <span className="badge">
           <strong>{stats.totalTapes.toLocaleString()}</strong> tapes ·{' '}
           {stats.tableCount} tables
         </span>
       </header>
+
+      {seed && seedNote && (
+        <div className="seed-note">
+          <span className="sn-icon">📈</span>
+          <span className="sn-text">
+            Built from your forecast — <strong>{seed.summary}</strong>, about{' '}
+            {money(seed.expectedTake)} a show. Move anything you like; it's a
+            starting point.
+          </span>
+          <button className="sn-x" onClick={() => setSeedNote(false)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="main">
         <Sidebar

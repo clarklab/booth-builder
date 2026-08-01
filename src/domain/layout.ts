@@ -158,15 +158,24 @@ export function itemFootprintFt(item: PlacedItem): { w: number; h: number } {
   };
 }
 
-/** Flat (face-up) VHS pack for a table's top. */
+/**
+ * Flat (face-up) VHS pack for a table's top. The pack only depends on the
+ * table kind, so it's cached — the forecaster scores dozens of candidate
+ * layouts at once and would otherwise re-run the packer for each one.
+ */
+const packCache = new Map<string, TablePack>();
 export function flatPackForTable(item: PlacedItem): TablePack {
   const kind = itemKindById(item.kindId);
-  return packTable(
+  const hit = packCache.get(kind.id);
+  if (hit) return hit;
+  const pack = packTable(
     kind.widthFt * IN_PER_FT,
     kind.lengthFt * IN_PER_FT,
     VHS_FACE.widthIn,
     VHS_FACE.heightIn,
   );
+  packCache.set(kind.id, pack);
+  return pack;
 }
 
 /**
