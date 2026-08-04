@@ -3,8 +3,11 @@ import {
   KIND_META,
   dayLabel,
   isSwap,
+  makeSplitId,
   type EventResult,
+  type MerchEvent,
   type PlanEvent,
+  type Split,
 } from '../domain/plan';
 
 const CROWD_CHIPS = [
@@ -170,6 +173,12 @@ export function EventCard({
                   you've already paid for.
                 </div>
               )}
+
+              <SplitEditor
+                event={event}
+                result={result}
+                onChange={(splits) => onPatch({ splits } as Partial<PlanEvent>)}
+              />
             </>
           )}
 
@@ -227,6 +236,139 @@ export function EventCard({
       )}
     </div>
   );
+}
+
+/**
+ * Who else gets a cut of this run. You're never a row — whatever the named
+ * parties don't take is yours, shown live at the bottom.
+ */
+function SplitEditor({
+  event,
+  result,
+  onChange,
+}: {
+  event: MerchEvent;
+  result: EventResult;
+  onChange: (splits: Split[]) => void;
+}) {
+  const splits = event.splits;
+  const over = result.splitPercent > 100;
+  const yourPercent = 100 - result.splitPercent;
+
+  const patch = (id: string, p: Partial<Split>) =>
+    onChange(splits.map((s) => (s.id === id ? { ...s, ...p } : s)));
+
+  const add = () =>
+    onChange([
+      ...splits,
+      {
+        id: makeSplitId(),
+        // First person gets an even split. After that, offer HALF of what's
+        // still yours — handing over the whole remainder would silently zero
+        // you out just for adding someone to the row.
+        name: '',
+        percent:
+          splits.length === 0 ? 50 : Math.max(0, Math.floor(yourPercent / 2)),
+      },
+    ]);
+
+  return (
+    <div className="pe-splits">
+      <div className="ps-head">
+        <span className="pf-l">Split</span>
+        {splits.length > 0 && (
+          <span className={`ps-you${over || result.profit <= 0 ? ' warn' : ''}`}>
+            {result.profit <= 0
+              ? // The percentage would read as a share of nothing. On a losing
+                // run you're carrying the whole thing, so say that instead.
+                `You absorb all of it · ${money(result.yourTake)}`
+              : `You keep ${round1(yourPercent)}% · ${money(result.yourTake)}`}
+          </span>
+        )}
+      </div>
+
+      {splits.length === 0 ? (
+        <button className="ps-add empty" onClick={add}>
+          + Split this run with someone
+        </button>
+      ) : (
+        <>
+          {splits.map((s) => {
+            const share = result.shares.find((x) => x.id === s.id);
+            return (
+              <div className="ps-row" key={s.id}>
+                <input
+                  className="ps-name"
+                  value={s.name}
+                  placeholder="Who?"
+                  onChange={(e) => patch(s.id, { name: e.target.value })}
+                  aria-label="Name"
+                />
+                <div className="ps-pct">
+                  <button
+                    onClick={() => patch(s.id, { percent: clampPct(s.percent - 5) })}
+                    aria-label="Less"
+                  >
+                    −
+                  </button>
+                  <span className="pv">
+                    <input
+                      value={s.percent}
+                      inputMode="decimal"
+                      onChange={(e) => {
+                        const n = Number(e.target.value.replace(/[^0-9.]/g, ''));
+                        patch(s.id, { percent: clampPct(Number.isFinite(n) ? n : 0) });
+                      }}
+                      aria-label="Percent"
+                    />
+                    <span className="pu">%</span>
+                  </span>
+                  <button
+                    onClick={() => patch(s.id, { percent: clampPct(s.percent + 5) })}
+                    aria-label="More"
+                  >
+                    +
+                  </button>
+                </div>
+                <span className="ps-amt">{money(share?.amount ?? 0)}</span>
+                <button
+                  className="ps-x"
+                  onClick={() => onChange(splits.filter((x) => x.id !== s.id))}
+                  aria-label="Remove split"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+          <button className="ps-add" onClick={add}>
+            + Add someone
+          </button>
+          {over && (
+            <div className="pe-note warn">
+              Splits add up to {round1(result.splitPercent)}% — more than there is,
+              so your own take goes negative.
+            </div>
+          )}
+          {!over && result.profit <= 0 && (
+            <div className="pe-note">
+              No profit to split yet, so everyone's cut is $0. A run that loses
+              money is yours alone — nobody pays you back.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function clampPct(n: number): number {
+  return Math.min(100, Math.max(0, Math.round(n * 10) / 10));
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }
 
 function Mini({

@@ -258,6 +258,11 @@ function TotalsRail({
           {money(totals.all.revenue)} in · {money(totals.all.cost)} out ·{' '}
           {totals.all.count} event{totals.all.count === 1 ? '' : 's'}
         </div>
+        {totals.partners.length > 0 && (
+          <div className="fh-yours">
+            <strong>{money(totals.yourTake)}</strong> yours after splits
+          </div>
+        )}
       </div>
 
       <div className="pl-split">
@@ -301,6 +306,32 @@ function TotalsRail({
               {money(totals.leftoverValue)} left in stock
             </div>
           )}
+        </div>
+      )}
+
+      {totals.partners.length > 0 && (
+        <div className="pl-card">
+          <h4>Splits</h4>
+          <div className="pl-partners">
+            {totals.partners.map((p) => (
+              <div className="pl-partner" key={p.key}>
+                <span className="pn">{p.name}</span>
+                <span className="pe">
+                  {p.events} run{p.events === 1 ? '' : 's'}
+                </span>
+                <span className="pa">{money(p.amount)}</span>
+              </div>
+            ))}
+            <div className="pl-partner you">
+              <span className="pn">You</span>
+              <span className="pe">everything else</span>
+              <span className="pa">{money(totals.yourTake)}</span>
+            </div>
+          </div>
+          <div className="pl-foot">
+            {money(totals.splitOut)} of {money(totals.all.profit)} goes to other
+            people. Losses aren't shared.
+          </div>
         </div>
       )}
 

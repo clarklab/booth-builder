@@ -6,9 +6,9 @@ Two tools for running a VHS booth, behind one home screen:
   top-down floor plan, then jump into a 3D view to see the whole booth,
   including how many **VHS tapes** fit face-up on your tables.
 - **Forecaster** — a running list of upcoming swap meets, custom VHS releases,
-  and T-shirt runs, with a live tally of what the year makes. It syncs to the
-  cloud, and any show on it can hand you a booth layout built to hit its
-  number.
+  and T-shirt runs, with a live tally of what the year makes. Releases can be
+  split with collaborators. It syncs to the cloud, and any show on it can hand
+  you a booth layout built to hit its number.
 
 ---
 
@@ -115,6 +115,26 @@ Merch is costed the way it actually works: you pay for the **whole run** up
 front, and only the units that sell pay you back. Unsold units are carried as
 inventory at cost, not written off as a loss.
 
+## Splitting a release
+
+Tapes and shirts can be split with other people — an artist, a co-label, a
+designer. Add a name and a percentage of that run's profit; you're never a row
+in the list, because whatever the named parties don't take is yours. A run with
+no splits is simply 100% yours.
+
+Two rules the split math follows, both deliberate:
+
+- **A loss is never shared.** Nobody hands money back on a release that didn't
+  sell, so shares floor at zero and the shortfall lands on you. The card says
+  so rather than showing negative payouts.
+- **Over-committing isn't silently clamped.** Put 70% and 60% on the same run
+  and your own take goes negative, with a warning explaining it. Quietly
+  rewriting the numbers you typed would hide the mistake.
+
+The rail totals everyone up across the year — the same person on two releases
+is one payout line, matched case-insensitively — so you can see what you owe
+whom, and what's actually yours after everyone's cut.
+
 ## Projections become actuals
 
 Every event starts as a projection. Once one has happened, tick **"It
@@ -126,6 +146,7 @@ much of the total is banked and how much is still a guess:
 - **Booked vs. still projected** — money in hand vs. money hoped for
 - **Where it comes from** — profit split across swaps, tapes and shirts
 - **Month by month** — cumulative profit, so you can see when you're ahead
+- **Splits** — what each collaborator is owed, and what's left for you
 
 Booking an actual never changes a merch run's cost. You already paid the
 duplicator, whether or not the tapes moved.

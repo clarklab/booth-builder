@@ -311,7 +311,9 @@ export function computePricing(stats: LayoutStats, markedAvg: number): Pricing {
 }
 
 export function money(n: number): string {
-  return '$' + Math.round(n).toLocaleString();
+  // Sign goes outside the symbol: -$61, not $-61.
+  const r = Math.round(n);
+  return (r < 0 ? '-$' : '$') + Math.abs(r).toLocaleString();
 }
 
 /** Typical gross for a single table (bundle rate, or marked avg if "as marked"). */

@@ -11,6 +11,10 @@
 // `done` and type what you actually took in — from then on the tally counts
 // the real number instead of the guess, so the total is part ledger, part
 // forecast and always the best figure available.
+//
+// Merch runs can carry SPLITS: other people who take a cut of that release's
+// profit. You are never listed — whatever the named parties don't take is
+// yours, so a run with no splits is simply 100% yours.
 
 export type EventKind = 'swap' | 'tape' | 'shirt';
 export type EventStatus = 'planned' | 'done';
@@ -36,12 +40,22 @@ export type SwapEvent = EventBase & {
   crowd: number;
 };
 
+/** Someone who takes a cut of a release's profit. */
+export type Split = {
+  id: string;
+  name: string;
+  /** Percent of the run's profit, 0–100. */
+  percent: number;
+};
+
 export type MerchEvent = EventBase & {
   kind: 'tape' | 'shirt';
   qty: number;
   unitCost: number;
   price: number;
   sellThrough: number;
+  /** Profit-sharers on this run. Your own share is whatever's left over. */
+  splits: Split[];
 };
 
 export type PlanEvent = SwapEvent | MerchEvent;
@@ -91,6 +105,11 @@ let counter = 0;
 export function makeEventId(): string {
   counter += 1;
   return `e${Date.now().toString(36)}${counter.toString(36)}`;
+}
+
+export function makeSplitId(): string {
+  counter += 1;
+  return `s${Date.now().toString(36)}${counter.toString(36)}`;
 }
 
 // ---------- Presets ----------
@@ -158,6 +177,7 @@ function merchPreset(
       unitCost,
       price,
       sellThrough,
+      splits: [],
     }),
   };
 }
@@ -190,6 +210,9 @@ export function nextName(events: PlanEvent[], kind: EventKind): string {
 
 // ---------- The math ----------
 
+/** What one profit-sharer actually gets from an event. */
+export type SplitShare = Split & { amount: number };
+
 export type EventResult = {
   event: PlanEvent;
   revenue: number;
@@ -201,22 +224,64 @@ export type EventResult = {
   unitsSold: number;
   leftover: number;
   leftoverValue: number;
+  /** Each named party's cut. Empty when nothing is split. */
+  shares: SplitShare[];
+  /** Total going to other people. */
+  splitOut: number;
+  /** Sum of the split percentages — over 100 means over-committed. */
+  splitPercent: number;
+  /** What's left for you: profit minus everyone else's cut. */
+  yourTake: number;
 };
+
+/**
+ * Divide an event's profit among its named sharers.
+ *
+ * Two judgement calls worth stating:
+ *  - A LOSS is not shared. Nobody hands money back on a release that didn't
+ *    sell, so shares floor at zero and the shortfall lands on you. That's how
+ *    these deals actually work.
+ *  - Percentages over 100 are NOT clamped. Your take just goes negative, which
+ *    is the arithmetically honest answer and something the UI flags, rather
+ *    than quietly rewriting the numbers you typed.
+ */
+function shareOut(profit: number, splits: Split[]): {
+  shares: SplitShare[];
+  splitOut: number;
+  splitPercent: number;
+  yourTake: number;
+} {
+  const shareable = Math.max(0, profit);
+  const shares = splits.map((s) => ({ ...s, amount: (shareable * s.percent) / 100 }));
+  const splitOut = shares.reduce((a, s) => a + s.amount, 0);
+  return {
+    shares,
+    splitOut,
+    splitPercent: splits.reduce((a, s) => a + s.percent, 0),
+    yourTake: profit - splitOut,
+  };
+}
 
 export function resultFor(event: PlanEvent): EventResult {
   const booked = event.status === 'done' && event.actualRevenue !== null;
 
   if (isSwap(event)) {
     const revenue = booked ? event.actualRevenue! : event.take;
+    const profit = revenue - event.cost;
     return {
       event,
       revenue,
       cost: event.cost,
-      profit: revenue - event.cost,
+      profit,
       estimated: !booked,
       unitsSold: 0,
       leftover: 0,
       leftoverValue: 0,
+      // Shows aren't split — the whole take is yours.
+      shares: [],
+      splitOut: 0,
+      splitPercent: 0,
+      yourTake: profit,
     };
   }
 
@@ -229,16 +294,18 @@ export function resultFor(event: PlanEvent): EventResult {
     ? Math.min(event.qty, event.price > 0 ? Math.round(revenue / event.price) : 0)
     : projectedSold;
   const leftover = Math.max(0, event.qty - unitsSold);
+  const profit = revenue - cost;
 
   return {
     event,
     revenue,
     cost,
-    profit: revenue - cost,
+    profit,
     estimated: !booked,
     unitsSold,
     leftover,
     leftoverValue: leftover * event.unitCost,
+    ...shareOut(profit, event.splits),
   };
 }
 
@@ -273,6 +340,22 @@ export type PlanTotals = {
   timeline: MonthPoint[];
   /** Soonest dated show still to come — what the booth build is sized for. */
   nextSwap: SwapEvent | null;
+  /** Everyone taking a cut this year, biggest first. */
+  partners: PartnerTotal[];
+  /** Total owed to other people across every event. */
+  splitOut: number;
+  /** The year's profit minus everyone else's cut. */
+  yourTake: number;
+};
+
+/** One person's cut across the whole year. */
+export type PartnerTotal = {
+  /** Lower-cased name, used to merge the same person across events. */
+  key: string;
+  name: string;
+  amount: number;
+  /** How many events they're on. */
+  events: number;
 };
 
 export function computeTotals(events: PlanEvent[]): PlanTotals {
@@ -290,8 +373,28 @@ export function computeTotals(events: PlanEvent[]): PlanTotals {
   let unitsMade = 0;
   let unitsSold = 0;
   let leftoverValue = 0;
+  let splitOut = 0;
+  let yourTake = 0;
+
+  // Merge each person across events. Names are matched case-insensitively and
+  // trimmed, so "Dana" on one release and "dana " on another is one payout.
+  const partners = new Map<string, PartnerTotal>();
 
   for (const r of results) {
+    splitOut += r.splitOut;
+    yourTake += r.yourTake;
+    for (const share of r.shares) {
+      const name = share.name.trim();
+      if (!name) continue; // unnamed row, still being typed
+      const key = name.toLowerCase();
+      const hit = partners.get(key);
+      if (hit) {
+        hit.amount += share.amount;
+        hit.events += 1;
+      } else {
+        partners.set(key, { key, name, amount: share.amount, events: 1 });
+      }
+    }
     addTo(all, r);
     addTo(r.estimated ? planned : booked, r);
     addTo(byKind[r.event.kind], r);
@@ -337,6 +440,9 @@ export function computeTotals(events: PlanEvent[]): PlanTotals {
     leftoverValue,
     timeline,
     nextSwap: upcomingShows[0] ?? null,
+    partners: [...partners.values()].sort((a, b) => b.amount - a.amount),
+    splitOut,
+    yourTake,
   };
 }
 
@@ -462,6 +568,22 @@ function normalizeEvent(raw: unknown): PlanEvent | null {
     unitCost: Math.max(0, num(o.unitCost, 0)),
     price: Math.max(0, num(o.price, 0)),
     sellThrough: clamp01(num(o.sellThrough, 0.65)),
+    // Absent on anything saved before splits existed, so default to none.
+    splits: Array.isArray(o.splits)
+      ? o.splits.map(normalizeSplit).filter((x): x is Split => x !== null)
+      : [],
+  };
+}
+
+function normalizeSplit(raw: unknown): Split | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  return {
+    id: str(o.id) || makeSplitId(),
+    name: str(o.name),
+    // Percentages are bounded to something sane but NOT summed-clamped — an
+    // over-committed run is a real state the UI needs to be able to show.
+    percent: Math.min(100, Math.max(0, num(o.percent, 0))),
   };
 }
 
@@ -547,6 +669,7 @@ export function migrateLegacy(): PlanEvent[] {
       unitCost: Math.max(0, num(line.unitCost, 0)),
       price: Math.max(0, num(line.price, 0)),
       sellThrough: clamp01(num(line.sellThrough, 0.65)),
+      splits: [],
     });
   }
 
