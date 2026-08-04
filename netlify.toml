@@ -1,13 +1,22 @@
-# Netlify configuration for Booth Builder (static Vite SPA).
-# The app is entirely client-side — no serverless functions are required —
-# so this just builds the Vite bundle and serves it from dist/.
+# Netlify configuration for VHS Garage.
+# A static Vite SPA plus one function: the season planner's storage, backed
+# by Netlify Blobs.
 
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "22"
+
+# The planner API. This has to come BEFORE the SPA catch-all below, which
+# would otherwise swallow it and hand back index.html.
+[[redirects]]
+  from = "/api/plan"
+  to = "/.netlify/functions/plan"
+  status = 200
+  force = true
 
 # Single-page app: send unknown routes back to index.html.
 [[redirects]]

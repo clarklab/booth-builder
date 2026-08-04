@@ -11,7 +11,7 @@ export function Home({ onOpenBooth, onOpenForecast }: Props) {
           <div className="home-logo">📼</div>
           <h1>VHS Garage</h1>
           <p className="home-sub">
-            Plan the booth. Forecast the year. Two tools, one shop.
+            Plan the booth. Keep the books. Two tools, one shop.
           </p>
         </header>
 
@@ -35,20 +35,21 @@ export function Home({ onOpenBooth, onOpenForecast }: Props) {
             <span className="hc-icon">📈</span>
             <span className="hc-title">Forecaster</span>
             <span className="hc-blurb">
-              Tap through shows, custom VHS releases, and T-shirt runs to see
-              what the year makes — then build the booth to match.
+              Keep a running list of swap meets, VHS releases, and shirt runs.
+              The tally updates as you add them — then build the booth to match.
             </span>
             <span className="hc-tags">
-              <span>Shows</span>
+              <span>Swaps</span>
               <span>Releases</span>
-              <span>Profit</span>
+              <span>Running tally</span>
             </span>
-            <span className="hc-go">Run the numbers →</span>
+            <span className="hc-go">Open the planner →</span>
           </button>
         </div>
 
         <p className="home-foot">
-          Everything runs in your browser and saves locally. Nothing is uploaded.
+          The booth layout saves in your browser. The season plan syncs to the
+          cloud, so it follows you between devices.
         </p>
       </div>
     </div>
