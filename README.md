@@ -5,9 +5,10 @@ Two tools for running a VHS booth, behind one home screen:
 - **Booth Builder** — lay out your pop-up tent and tables to scale on a
   top-down floor plan, then jump into a 3D view to see the whole booth,
   including how many **VHS tapes** fit face-up on your tables.
-- **Forecaster** — tap through your year (shows, custom VHS releases, T-shirt
-  runs) and see what it makes. When you're done it hands you a booth layout
-  built to hit your per-show number.
+- **Forecaster** — a running list of upcoming swap meets, custom VHS releases,
+  and T-shirt runs, with a live tally of what the year makes. It syncs to the
+  cloud, and any show on it can hand you a booth layout built to hit its
+  number.
 
 ---
 
@@ -84,38 +85,81 @@ npm run preview  # preview the production build
 - **Vite + React + TypeScript** for the app and 2D editor
 - **Three.js** for the 3D scene (instanced meshes for the tapes)
 - Hash routing (`#/`, `#/booth`, `#/forecast`) — no router dependency
-- No backend — everything runs in the browser
+- **Netlify Blobs** behind one function for the season plan; the booth layout
+  and a local mirror of the plan live in the browser
 
 ---
 
 # Forecaster
 
-A four-step, tap-and-go wizard for planning the year. It saves to
-localStorage separately from your booth layout.
+A living list of everything that makes (or costs) money, with a running tally
+that updates as you add to it. Not a one-shot calculator — you keep it around
+and edit it all year.
 
-1. **Shows** — how many you'll be at, what you want to take home from each
-   one, how busy the crowd is (10 / 25 / 50% of the display moves), and what
-   a show costs you in booth fees and gas.
-2. **VHS releases** — tap a run size (25 / 50 / 100 tapes) to add a release,
-   then adjust the quantity, what each one costs to make, what you sell it
-   for, and how much of the run you expect to move. Make them for $5, sell
-   them for $20 — the margin math is right there on the card.
-3. **T-shirts** — same flow, different presets (24 / 50 / 100 shirts).
-4. **Your year** — projected profit, profit per show, units sold, which show
-   you break even on, and what's left in unsold stock, plus a bar breakdown
-   of every dollar in and out.
+Three kinds of event share one list:
+
+- **🎪 Swap meets** — a show you set the booth up at. Costs a booth fee and gas,
+  brings in used-tape sales off the tables. Each one carries its own crowd
+  level, so a busy record fair and a slow Sunday market aren't forced to share
+  an assumption.
+- **📼 VHS releases** — a custom run. Make them for $5, sell them for $20; the
+  margin is on the card.
+- **👕 Shirt runs** — same money shape, different presets.
+
+Tap **Add**, pick a run size, and you get a card pre-filled with sensible
+numbers. Everything on it is editable: name, date, quantity, unit cost, sale
+price, expected sell-through. Events group by month with a per-month subtotal,
+and filter by kind or by whether they've happened yet.
 
 Merch is costed the way it actually works: you pay for the **whole run** up
-front, and only the units that sell pay you back. Unsold units are counted as
-inventory at cost, not as a loss.
+front, and only the units that sell pay you back. Unsold units are carried as
+inventory at cost, not written off as a loss.
+
+## Projections become actuals
+
+Every event starts as a projection. Once one has happened, tick **"It
+happened"** and type what you actually took in — the tally counts the real
+number from then on. The rail keeps the two apart so you can always see how
+much of the total is banked and how much is still a guess:
+
+- **Running tally** — the whole year, best figure available for each event
+- **Booked vs. still projected** — money in hand vs. money hoped for
+- **Where it comes from** — profit split across swaps, tapes and shirts
+- **Month by month** — cumulative profit, so you can see when you're ahead
+
+Booking an actual never changes a merch run's cost. You already paid the
+duplicator, whether or not the tapes moved.
+
+## Where it's stored
+
+Local-first, cloud-synced:
+
+- **localStorage** is what the UI reads and writes, so edits never wait on the
+  network. The planner works offline, and on `vite dev` where the function
+  doesn't exist — the header badge just says "On this device".
+- **Netlify Blobs** is the shared copy, pulled on load and pushed on a debounce
+  after edits (with a hard ceiling so a long editing session still syncs). The
+  newest edit wins, and the server refuses a write older than what it already
+  holds, so a stale tab can't clobber a newer save.
+
+The endpoint is `GET`/`PUT /api/plan` (`netlify/functions/plan.ts`).
+
+> **Worth knowing:** with no `PLANNER_TOKEN` set the endpoint is open — anyone
+> who finds the URL can read and overwrite the plan. That's the zero-config
+> default so it works out of the box. Set a `PLANNER_TOKEN` environment
+> variable in your Netlify project to require a passphrase; the app prompts for
+> it once and remembers it.
+
+If you'd used the old one-shot wizard, its saved plan is migrated into events
+on first load — one swap per show it counted, one event per merch line.
 
 ## From a number to a booth
 
-The Forecaster's last step ends with **"Open this booth in the Builder"**.
-Say you want **$200 out of a show** — it hands you a floor plan already set
-up to do it: the right tent size, the right tables, front racks where they
-help, and a premium "as marked" table when the standard 3-for-$10 bins can't
-get there on their own.
+Every swap meet card has a **"Build the booth for this show"** button, and the
+rail carries one sized for your next show. Say a show should bring in
+**$200** — it hands you a floor plan already set up to do it: the right tent
+size, the right tables, front racks where they help, and a premium "as marked"
+table when the standard 3-for-$10 bins can't get there on their own.
 
 Under the hood (`src/domain/autoLayout.ts`) it scores a ladder of hand-laid
 booth shapes — one table, L-shape, U-shape, wide U, U-with-an-island, each
@@ -133,11 +177,15 @@ them.
 
 ## Deploying to Netlify
 
-The app is a static SPA; `netlify.toml` is already configured:
+`netlify.toml` is already configured — a static SPA plus one function:
 
 - Build command: `npm run build`
 - Publish directory: `dist`
-- SPA redirect + long-cache headers for hashed assets
+- Functions directory: `netlify/functions`
+- `/api/plan` → the planner function, declared **before** the SPA catch-all so
+  it doesn't get rewritten to `index.html`
+- Long-cache headers for hashed assets
 
-Point Netlify at this repo and it deploys as-is. No serverless functions are
-required.
+Point Netlify at this repo and it deploys as-is. Netlify Blobs needs no setup;
+the store is created on first write. Set `PLANNER_TOKEN` in the project's
+environment variables if you want the planner passphrase-protected.
