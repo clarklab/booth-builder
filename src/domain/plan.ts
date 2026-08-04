@@ -55,11 +55,30 @@ export type PlanDoc = {
 
 export const KIND_META: Record<
   EventKind,
-  { label: string; plural: string; emoji: string; color: string }
+  { label: string; plural: string; addLabel: string; emoji: string; color: string }
 > = {
-  swap: { label: 'Swap meet', plural: 'Swap meets', emoji: '🎪', color: '#38bdf8' },
-  tape: { label: 'VHS release', plural: 'VHS releases', emoji: '📼', color: '#a78bfa' },
-  shirt: { label: 'Shirt run', plural: 'Shirt runs', emoji: '👕', color: '#34d399' },
+  swap: {
+    label: 'Swap meet',
+    plural: 'Swap meets',
+    addLabel: 'Add swap meet',
+    emoji: '🎪',
+    color: '#38bdf8',
+  },
+  tape: {
+    label: 'VHS release',
+    plural: 'VHS releases',
+    // Spelled out rather than lower-cased from `label` — "vhs" reads wrong.
+    addLabel: 'Add VHS release',
+    emoji: '📼',
+    color: '#a78bfa',
+  },
+  shirt: {
+    label: 'Shirt run',
+    plural: 'Shirt runs',
+    addLabel: 'Add shirt run',
+    emoji: '👕',
+    color: '#34d399',
+  },
 };
 
 export function isSwap(e: PlanEvent): e is SwapEvent {

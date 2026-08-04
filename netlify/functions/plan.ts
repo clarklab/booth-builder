@@ -8,6 +8,13 @@
 // With no token set the endpoint is open, which is the zero-config default but
 // means anyone who finds the URL can read and overwrite the plan. Set the
 // variable if that matters to you.
+//
+// Reads are STRONGLY consistent. Blobs defaults to eventual, which measured
+// ~4s of staleness against a deploy preview, and that is long enough to hurt
+// twice: a device opening the planner could read null and show an empty plan
+// that a first edit would then overwrite, and the stale-write guard below
+// could wave through a write it should have rejected. One small document read
+// once per page load is well worth the slower path.
 
 import { getStore } from '@netlify/blobs';
 
@@ -26,7 +33,7 @@ export default async (req: Request): Promise<Response> => {
 
   let store: ReturnType<typeof getStore>;
   try {
-    store = getStore(STORE);
+    store = getStore({ name: STORE, consistency: 'strong' });
   } catch (err) {
     // Blobs isn't wired up (e.g. running the function outside Netlify).
     return json({ error: 'blobs unavailable', detail: String(err) }, 503);

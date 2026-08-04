@@ -136,7 +136,7 @@ export function Forecaster({ onHome, onBuildBooth }: Props) {
                   onClick={() => setAdding(adding === kind ? null : kind)}
                 >
                   <span className="e">{KIND_META[kind].emoji}</span>
-                  <span className="t">Add {KIND_META[kind].label.toLowerCase()}</span>
+                  <span className="t">{KIND_META[kind].addLabel}</span>
                   <span className="c">{adding === kind ? '✕' : '+'}</span>
                 </button>
                 {adding === kind && (
@@ -348,7 +348,7 @@ function TotalsRail({
           {build.markedCount > 0 && <span>{build.markedCount} “as marked”</span>}
         </div>
         <button className="btn primary big" onClick={onBuildBooth}>
-          🎪 Open this booth in the Builder →
+          🎪 Open in the Builder →
         </button>
       </div>
     </aside>
