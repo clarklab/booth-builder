@@ -390,6 +390,9 @@ body {
   border: 2px solid rgba(255, 255, 255, 0.25);
   overflow: hidden;
 }
+.surface.round {
+  border-radius: 50%;
+}
 .item-wrap.selected .surface {
   border-color: #fff;
   box-shadow: 0 0 0 2px var(--accent), 0 4px 14px rgba(0, 0, 0, 0.5);

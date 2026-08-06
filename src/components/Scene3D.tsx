@@ -12,12 +12,13 @@ import {
   TENT_PEAK_FT,
   VHS,
   itemKindById,
+  tableTopHeightIn,
 } from '../domain/constants';
 import {
   computeStats,
   defaultRackSide,
   money,
-  propRestsOnTable,
+  propSupportHeightFt,
   tableFlatPlacements,
   tableTypicalPrice,
 } from '../domain/layout';
@@ -211,7 +212,6 @@ export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: P
     scene.add(buildTent(tentFt));
 
     // Shared tape assets
-    const tableTopY = TABLE_TOP_HEIGHT_IN / IN_PER_FT;
     const topThick = TABLE_TOP_THICKNESS_IN / IN_PER_FT;
     const tapeThick = VHS.thicknessIn / IN_PER_FT;
     const faceLong = VHS.longIn / IN_PER_FT; // 187mm
@@ -256,8 +256,10 @@ export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: P
           buildChair(group, disposables); // always on the ground
         } else {
           // TV / vinyl: rest on a tabletop if over a table, else the floor.
-          const baseY = propRestsOnTable(item, layout) ? tableTopY : 0;
-          if (kind.prop === 'tv') buildTV(group, baseY, disposables, updaters);
+          // Bartops are a foot taller, so take the height from the table itself.
+          const baseY = propSupportHeightFt(item, layout) ?? 0;
+          if (kind.prop === 'tv')
+            buildTV(group, baseY, kind.lengthFt, disposables, updaters);
           else if (kind.prop === 'vinyl') buildVinyl(group, baseY, disposables, coverMat, cursor);
         }
         if (isSel) addSelBox(group);
@@ -266,30 +268,43 @@ export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: P
 
       const lengthFt = kind.lengthFt;
       const widthFt = kind.widthFt;
+      const round = kind.shape === 'round';
+      const topY = tableTopHeightIn(kind) / IN_PER_FT; // bartops stand higher
 
       // Table top
       const topMat = new THREE.MeshStandardMaterial({ color: '#c9a56a', roughness: 0.75 });
-      const top = new THREE.Mesh(new THREE.BoxGeometry(lengthFt, topThick, widthFt), topMat);
-      top.position.y = tableTopY - topThick / 2;
+      const topGeo = round
+        ? new THREE.CylinderGeometry(lengthFt / 2, lengthFt / 2, topThick, 48)
+        : new THREE.BoxGeometry(lengthFt, topThick, widthFt);
+      const top = new THREE.Mesh(topGeo, topMat);
+      top.position.y = topY - topThick / 2;
       top.castShadow = true;
       top.receiveShadow = true;
       group.add(top);
-      disposables.push(top.geometry, topMat);
+      disposables.push(topGeo, topMat);
 
-      // Legs
+      // Legs — corner posts on a rectangle, a folding X-frame footprint on a round top.
       const legMat = new THREE.MeshStandardMaterial({
         color: '#4b5563', roughness: 0.4, metalness: 0.6,
       });
-      const legGeo = new THREE.BoxGeometry(0.1, tableTopY - topThick, 0.1);
+      const legGeo = new THREE.BoxGeometry(0.1, topY - topThick, 0.1);
       const inset = 0.25;
-      for (const [lx, lz] of [
-        [lengthFt / 2 - inset, widthFt / 2 - inset],
-        [-(lengthFt / 2 - inset), widthFt / 2 - inset],
-        [lengthFt / 2 - inset, -(widthFt / 2 - inset)],
-        [-(lengthFt / 2 - inset), -(widthFt / 2 - inset)],
-      ] as [number, number][]) {
+      const legSpots: [number, number][] = round
+        ? ([[1, 1], [-1, 1], [1, -1], [-1, -1]] as [number, number][]).map(
+            ([sx, sz]) => {
+              const d = (lengthFt / 2 - inset) / Math.SQRT2;
+              return [sx * d, sz * d];
+            },
+          )
+        : [
+            [lengthFt / 2 - inset, widthFt / 2 - inset],
+            [-(lengthFt / 2 - inset), widthFt / 2 - inset],
+            [lengthFt / 2 - inset, -(widthFt / 2 - inset)],
+            [-(lengthFt / 2 - inset), -(widthFt / 2 - inset)],
+          ];
+      for (const [lx, lz] of legSpots) {
         const leg = new THREE.Mesh(legGeo, legMat);
-        leg.position.set(lx, (tableTopY - topThick) / 2, lz);
+        leg.position.set(lx, (topY - topThick) / 2, lz);
         leg.castShadow = true;
         group.add(leg);
       }
@@ -306,7 +321,7 @@ export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: P
         const p = placements[i];
         dummy.position.set(
           (p.x + p.w / 2) / IN_PER_FT - lengthFt / 2,
-          tableTopY + tapeThick / 2,
+          topY + tapeThick / 2,
           (p.y + p.h / 2) / IN_PER_FT - widthFt / 2,
         );
         dummy.rotation.set(0, p.rotated ? Math.PI / 2 : 0, 0);
@@ -318,14 +333,14 @@ export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: P
       disposables.push(inst, flatCovered);
 
       // Front rack (on the chosen edge)
-      if (item.frontRack) {
+      if (item.frontRack && kind.supportsRack) {
         const side = item.rackSide ?? defaultRackSide(item, layout);
         const onLongEdge = side === 0 || side === 2;
         buildRack(group, {
           edgeLen: onLongEdge ? lengthFt : widthFt,
           halfDepth: onLongEdge ? widthFt / 2 : lengthFt / 2,
           yaw: [0, Math.PI / 2, Math.PI, -Math.PI / 2][side],
-          tableTopY, standGeo, coverMat, faceShort, disposables, cursor, dummy,
+          tableTopY: topY, standGeo, coverMat, faceShort, disposables, cursor, dummy,
         });
       }
 
@@ -340,7 +355,7 @@ export function Scene3D({ layout, markedAvg, selectedUid, onSelect, onClose }: P
           `${stat.tapes} tapes`,
           disposables,
         );
-        sprite.position.set(0, tableTopY + 2.6, 0);
+        sprite.position.set(0, topY + 2.6, 0);
         group.add(sprite);
       }
     }
@@ -508,12 +523,16 @@ function buildRack(
 function buildTV(
   parent: THREE.Group,
   baseY: number,
+  footprintFt: number,
   disposables: Disposable[],
   updaters: (() => void)[],
 ) {
-  const bodyH = 1.35;
+  // Derived from the footprint so the box never overhangs the plan's outline.
+  const bodyW = footprintFt * 0.96;
+  const bodyD = footprintFt * 0.94;
+  const bodyH = footprintFt * 0.88;
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#9ca3af', roughness: 0.6 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, bodyH, 1.4), bodyMat);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), bodyMat);
   body.position.y = baseY + bodyH / 2;
   body.castShadow = true;
   body.receiveShadow = true;
@@ -551,8 +570,11 @@ function buildTV(
     emissiveIntensity: 0.45,
     roughness: 0.35,
   });
-  const screen = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.0, 0.06), screenMat);
-  screen.position.set(0, baseY + bodyH / 2 + 0.02, 0.72);
+  const screen = new THREE.Mesh(
+    new THREE.BoxGeometry(bodyW * 0.78, bodyH * 0.74, 0.06),
+    screenMat,
+  );
+  screen.position.set(0, baseY + bodyH / 2 + 0.02, bodyD / 2 + 0.02);
   parent.add(screen);
   disposables.push(screen.geometry, screenMat, tex);
   updaters.push(() => {

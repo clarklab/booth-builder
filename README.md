@@ -20,9 +20,11 @@ Two tools for running a VHS booth, behind one home screen:
   Everything is measured in real feet/inches. Snap-to-grid keeps things tidy.
 - **Configurable tent.** Switch between **8′×8′**, **10′×10′**, and **12′×12′**
   pop-up canopies.
-- **Tables like Lego.** Add **2′×4′**, **2′×6′**, and **3′×6′** tables, drag
-  them, rotate them 90°, duplicate, or delete.
-- **Display props.** Drop in a **CRT TV** (2′×2′), a **Vinyl display** crate
+- **Tables like Lego.** Add **2′×4′**, **2′×6′**, and **3′×6′** tables, a
+  **16″×40″ bartop** (bar height — about a foot above a folding table), a
+  **32″ square**, or a **4′ round**. Drag them, rotate them 90°, duplicate,
+  or delete.
+- **Display props.** Drop in a **CRT TV** (16″×16″), a **Vinyl display** crate
   (2′×2′), a **Folding chair** (3′×3′, sits on the ground), or a **Banner**
   that hangs along a tent edge at the top of the poles and reads
   “VHSgarage.com”. A TV or crate placed on a table rests on the tabletop and
@@ -31,7 +33,8 @@ Two tools for running a VHS booth, behind one home screen:
 - **VHS capacity math.** Tapes are packed in a solid mosaic (both orientations
   allowed) to maximize the count on each table, then centered on the table.
 - **Front rack (optional, per table).** Toggle a leaned plywood display board
-  that holds tapes standing face-out in 3 rows. Pick which edge it sits on —
+  that holds tapes standing face-out in 3 rows (not on the round table — a
+  leaned board needs a straight edge). Pick which edge it sits on —
   it defaults to facing into the tent; click it on the plan (or the sidebar
   button) to move it to any edge. Its tapes are counted and priced.
 - **Revenue estimates.** Standard tapes priced at 3-for-$10 (typical) up to
@@ -50,13 +53,18 @@ A standard VHS cassette is **187 × 103 × 25 mm**. Laid *face up* (flat on its
 back), each tape's footprint on the table is **187 × 103 mm** (~7.36″ × 4.06″).
 Tapes are packed with a recursive rectangle-packing heuristic that tries both
 orientations and fills leftover strips, reaching ~90% of the theoretical
-area-max. Typical counts:
+area-max. The round top gets its own packer: rows of one tape-height, each
+centered on its own chord (a grid would force every row onto the same phase
+and lose tapes at the rim), which fills ~82% of the circle. Typical counts:
 
-| Table   | Tapes (face up) |
-| ------- | --------------- |
-| 2′ × 4′ | 33              |
-| 2′ × 6′ | 51              |
-| 3′ × 6′ | 77              |
+| Table       | Tapes (face up) |
+| ----------- | --------------- |
+| 16″ × 40″   | 18              |
+| 32″ square  | 28              |
+| 2′ × 4′     | 33              |
+| 4′ round    | 50              |
+| 2′ × 6′     | 51              |
+| 3′ × 6′     | 77              |
 
 Add items by **dragging them from the sidebar** onto the plan (or click to
 drop one in). In the **3D view you can click an item to select it** and use the
@@ -68,7 +76,7 @@ Work in both the floor plan and the 3D view (on the selected item):
 
 - **R** — rotate the selected item 90°
 - **D** — duplicate the selected item
-- **F** — toggle the front rack (tables only)
+- **F** — toggle the front rack (tables with a straight edge)
 - **Delete / Backspace** — remove the selected item
 
 ## Development

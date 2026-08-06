@@ -137,7 +137,7 @@ export function App({ seed, onHome, onForecast }: AppProps = {}) {
 
   const toggleRack = () => {
     const src = layout.items.find((t) => t.uid === selectedUid);
-    if (!src) return;
+    if (!src || !itemKindById(src.kindId).supportsRack) return;
     const enabling = !src.frontRack;
     patchSelected({
       frontRack: enabling,
@@ -216,7 +216,12 @@ export function App({ seed, onHome, onForecast }: AppProps = {}) {
       } else if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         duplicateSelected();
-      } else if ((e.key === 'f' || e.key === 'F') && sel && isTable(sel)) {
+      } else if (
+        (e.key === 'f' || e.key === 'F') &&
+        sel &&
+        isTable(sel) &&
+        itemKindById(sel.kindId).supportsRack
+      ) {
         e.preventDefault();
         toggleRack();
       }

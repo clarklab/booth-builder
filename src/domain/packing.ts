@@ -103,6 +103,70 @@ function gridFill(W: number, H: number, w: number, h: number): Placement[] {
   return out;
 }
 
+/**
+ * Pack a circle of diameter D with w x h items, rotation allowed. Coordinates
+ * are in the circle's bounding box, so a round top drops into the same local
+ * frame as a rectangular one.
+ *
+ * Rows, not a grid: stack rows of one item-height and center each row on its
+ * own chord. A row of chord length c holds at most floor(c / itemWidth) items
+ * and centering always reaches that, so this beats any rigid grid — a grid
+ * forces every row onto the same x-phase and loses items at the rim. Both
+ * orientations are tried, and the whole stack is slid through the vertical
+ * slack the circle leaves over it.
+ */
+export function packCircle(D: number, w: number, h: number): Placement[] {
+  const r = D / 2;
+  const PHASES = 16;
+  let best: Placement[] = [];
+  let bestOff = Infinity;
+
+  for (const [pw, ph, rotated] of [
+    [w, h, false],
+    [h, w, true],
+  ] as const) {
+    const rows = Math.floor((D + EPS) / ph);
+    if (rows < 1 || pw > D + EPS) continue;
+    const slack = D - rows * ph;
+
+    for (let i = 0; i <= PHASES; i++) {
+      const y0 = (slack * i) / PHASES;
+      const out: Placement[] = [];
+      for (let j = 0; j < rows; j++) {
+        const yTop = y0 + j * ph;
+        // A row is only as wide as the circle at whichever of its two edges
+        // sits farther from the center.
+        const dy = Math.max(Math.abs(yTop - r), Math.abs(yTop + ph - r));
+        const half = Math.sqrt(Math.max(0, r * r - dy * dy));
+        const n = Math.floor((2 * half + EPS) / pw);
+        const x0 = r - (n * pw) / 2;
+        for (let k = 0; k < n; k++)
+          out.push({ x: x0 + k * pw, y: yTop, w: pw, h: ph, rotated });
+      }
+      if (out.length === 0) continue;
+      const off = packOffCenter(out, r);
+      if (out.length > best.length || (out.length === best.length && off < bestOff)) {
+        best = out;
+        bestOff = off;
+      }
+    }
+  }
+
+  return best;
+}
+
+/** How far the pack's bounding box sits off the circle's center. */
+function packOffCenter(list: Placement[], r: number): number {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of list) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w);
+    maxY = Math.max(maxY, p.y + p.h);
+  }
+  return Math.hypot((minX + maxX) / 2 - r, (minY + maxY) / 2 - r);
+}
+
 export type TablePack = {
   placements: Placement[];
   count: number;
@@ -124,6 +188,20 @@ export function packTable(
   const cached = packCache.get(key);
   if (cached) return cached;
   const placements = packRect(W, H, itemW, itemH);
+  const pack = { placements, count: placements.length };
+  packCache.set(key, pack);
+  return pack;
+}
+
+export function packRoundTable(
+  diameterIn: number,
+  itemW: number,
+  itemH: number,
+): TablePack {
+  const key = `round${diameterIn.toFixed(3)}:${itemW.toFixed(3)}x${itemH.toFixed(3)}`;
+  const cached = packCache.get(key);
+  if (cached) return cached;
+  const placements = packCircle(diameterIn, itemW, itemH);
   const pack = { placements, count: placements.length };
   packCache.set(key, pack);
   return pack;

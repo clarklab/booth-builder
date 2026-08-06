@@ -2,14 +2,23 @@ import {
   IN_PER_FT,
   MARKED_MIN_PRICE,
   MARKED_MAX_PRICE,
+  RACK_LEAN_DEG,
   RACK_ROWS,
   TAPE_BUNDLE_RATE,
   TAPE_SINGLE_PRICE,
   VHS,
   VHS_FACE,
   itemKindById,
+  tableAreaSqFt,
+  tableTopHeightIn,
+  type ItemKind,
 } from './constants';
-import { packTable, type Placement, type TablePack } from './packing';
+import {
+  packRoundTable,
+  packTable,
+  type Placement,
+  type TablePack,
+} from './packing';
 import type { Layout, PlacedItem } from './types';
 
 export function isTable(item: PlacedItem): boolean {
@@ -43,11 +52,27 @@ export function itemsOverlap(a: PlacedItem, b: PlacedItem): boolean {
   return rectsOverlap(itemWorldAABB(a), itemWorldAABB(b));
 }
 
-/** Does a prop sit on top of a table (i.e. overlaps any table footprint)? */
-export function propRestsOnTable(prop: PlacedItem, layout: Layout): boolean {
+/**
+ * Height (in feet) of the surface a prop rests on: the top of the tallest
+ * table it overlaps, or null when it's standing on the ground. A bartop is a
+ * foot higher than a folding table, so this can't be a single constant.
+ */
+export function propSupportHeightFt(prop: PlacedItem, layout: Layout): number | null {
   const pr = itemWorldAABB(prop);
-  return layout.items.some(
-    (it) => it.uid !== prop.uid && isTable(it) && rectsOverlap(pr, itemWorldAABB(it)),
+  let top: number | null = null;
+  for (const it of layout.items) {
+    if (it.uid === prop.uid || !isTable(it)) continue;
+    if (!rectsOverlap(pr, itemWorldAABB(it))) continue;
+    const hFt = tableTopHeightIn(itemKindById(it.kindId)) / IN_PER_FT;
+    if (top === null || hFt > top) top = hFt;
+  }
+  return top;
+}
+
+/** Ground footprint depth of this kind's leaned front rack, in feet. */
+export function rackDepthFt(kind: ItemKind): number {
+  return (
+    (tableTopHeightIn(kind) / IN_PER_FT) * Math.tan((RACK_LEAN_DEG * Math.PI) / 180)
   );
 }
 
@@ -97,9 +122,12 @@ export function tableFlatPlacements(table: PlacedItem, layout: Layout): Placemen
   // Center the whole packed block within the table so leftover slack is
   // split evenly instead of all landing on one edge. Offset is derived from
   // the FULL packing, then applied after prop-filtering so holes stay put.
+  // A round pack is already centered by the packer, and nudging it would push
+  // rim tapes off the edge.
   const Lin = kind.lengthFt * IN_PER_FT;
   const Win = kind.widthFt * IN_PER_FT;
-  const off = centerOffset(base, Lin, Win);
+  const off =
+    kind.shape === 'round' ? { x: 0, y: 0 } : centerOffset(base, Lin, Win);
 
   const tableAABB = itemWorldAABB(table);
   const blockers: Rect[] = [];
@@ -168,12 +196,15 @@ export function flatPackForTable(item: PlacedItem): TablePack {
   const kind = itemKindById(item.kindId);
   const hit = packCache.get(kind.id);
   if (hit) return hit;
-  const pack = packTable(
-    kind.widthFt * IN_PER_FT,
-    kind.lengthFt * IN_PER_FT,
-    VHS_FACE.widthIn,
-    VHS_FACE.heightIn,
-  );
+  const pack =
+    kind.shape === 'round'
+      ? packRoundTable(kind.lengthFt * IN_PER_FT, VHS_FACE.widthIn, VHS_FACE.heightIn)
+      : packTable(
+          kind.widthFt * IN_PER_FT,
+          kind.lengthFt * IN_PER_FT,
+          VHS_FACE.widthIn,
+          VHS_FACE.heightIn,
+        );
   packCache.set(kind.id, pack);
   return pack;
 }
@@ -209,6 +240,7 @@ export function rackSideOf(item: PlacedItem, layout: Layout): number {
 export function rackTapesForTable(item: PlacedItem, layout: Layout): number {
   if (!item.frontRack) return 0;
   const kind = itemKindById(item.kindId);
+  if (!kind.supportsRack) return 0;
   const side = rackSideOf(item, layout);
   const onLongEdge = side === 0 || side === 2;
   const edgeLenIn = (onLongEdge ? kind.lengthFt : kind.widthFt) * IN_PER_FT;
@@ -256,7 +288,7 @@ export function computeStats(layout: Layout): LayoutStats {
     totalTapes += tapes;
     if (item.asMarked) markedTapes += tapes;
     else standardTapes += tapes;
-    area += kind.widthFt * kind.lengthFt;
+    area += tableAreaSqFt(kind);
     perTable.push({
       uid: item.uid,
       label: kind.label,
@@ -264,7 +296,7 @@ export function computeStats(layout: Layout): LayoutStats {
       rack,
       tapes,
       asMarked: !!item.asMarked,
-      hasRack: !!item.frontRack,
+      hasRack: rack > 0,
     });
   }
 

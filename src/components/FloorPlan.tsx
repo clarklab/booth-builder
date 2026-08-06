@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import {
-  IN_PER_FT,
-  RACK_LEAN_DEG,
-  TABLE_TOP_HEIGHT_IN,
-  itemKindById,
-} from '../domain/constants';
+import { IN_PER_FT, itemKindById } from '../domain/constants';
 import {
   isTable,
   itemFootprintFt,
+  rackDepthFt,
   rackSideOf,
   rackTapesForTable,
   tableFlatPlacements,
@@ -29,10 +25,6 @@ type Props = {
   onOpen3D: () => void;
   canOpen3D: boolean;
 };
-
-// Depth (ground footprint) of a leaned front rack, in feet.
-const RACK_DEPTH_FT =
-  (TABLE_TOP_HEIGHT_IN / IN_PER_FT) * Math.tan((RACK_LEAN_DEG * Math.PI) / 180);
 
 export function FloorPlan({
   layout,
@@ -272,8 +264,9 @@ function ItemView({
   const rackTapes = rackTapesForTable(item, layout);
 
   // Rack strip position depends on which edge it sits on.
-  const side = table && item.frontRack ? rackSideOf(item, layout) : 0;
-  const depthPx = RACK_DEPTH_FT * pxPerFt;
+  const hasRack = table && !!item.frontRack && !!kind.supportsRack;
+  const side = hasRack ? rackSideOf(item, layout) : 0;
+  const depthPx = rackDepthFt(kind) * pxPerFt;
   const stripStyle: React.CSSProperties =
     side === 0
       ? { top: widPx, left: 0, width: lenPx, height: depthPx }
@@ -290,7 +283,7 @@ function ItemView({
       onPointerDown={onPointerDown}
     >
       {/* Front rack strip on the chosen edge; click to move it around */}
-      {table && item.frontRack && (
+      {hasRack && (
         <div
           className="rack-strip"
           style={stripStyle}
@@ -305,7 +298,9 @@ function ItemView({
       )}
 
       <div
-        className={`surface ${table ? 'table' : 'prop prop-' + kind.prop}`}
+        className={`surface ${table ? 'table' : 'prop prop-' + kind.prop}${
+          kind.shape === 'round' ? ' round' : ''
+        }`}
         style={{ background: kind.color }}
       >
         {table && showTapes && pxPerFt >= 16 && (

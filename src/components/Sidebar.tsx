@@ -5,7 +5,9 @@ import {
   SELL_THROUGH_LEVELS,
   TABLE_KINDS,
   TENT_SIZES,
+  footprintLabel,
   itemKindById,
+  tableAreaSqFt,
   type TentSize,
 } from '../domain/constants';
 import { isTable, money, type LayoutStats, type Pricing } from '../domain/layout';
@@ -59,6 +61,8 @@ export function Sidebar(props: Props) {
   const selectedStat = stats.perTable.find((p) => p.uid === selectedUid);
   const selectedIsTable = selected ? isTable(selected) : false;
   const selectedIsBanner = selectedKind?.prop === 'banner';
+  // A leaned rack needs a straight edge, so round tops don't offer one.
+  const selectedTakesRack = selectedIsTable && !!selectedKind?.supportsRack;
 
   return (
     <aside className="sidebar">
@@ -91,10 +95,19 @@ export function Sidebar(props: Props) {
                 e.dataTransfer.effectAllowed = 'copy';
               }}
             >
-              <span className="swatch" style={{ background: k.color }} />
+              <span
+                className="swatch"
+                style={{
+                  background: k.color,
+                  borderRadius: k.shape === 'round' ? '50%' : undefined,
+                }}
+              />
               <span className="meta">
-                <span className="name">{k.label} table</span>
-                <span className="sub">{k.widthFt * k.lengthFt} sq ft</span>
+                <span className="name">{k.label}</span>
+                <span className="sub">
+                  {Math.round(tableAreaSqFt(k) * 10) / 10} sq ft
+                  {k.topHeightIn ? ` · ${k.topHeightIn}" high` : ''}
+                </span>
               </span>
               <span className="plus">⤢</span>
             </button>
@@ -127,9 +140,7 @@ export function Sidebar(props: Props) {
               </span>
               <span className="meta">
                 <span className="name">{k.label}</span>
-                <span className="sub">
-                  {k.widthFt}′ × {k.lengthFt}′ footprint
-                </span>
+                <span className="sub">{footprintLabel(k)} footprint</span>
               </span>
               <span className="plus">⤢</span>
             </button>
@@ -144,7 +155,6 @@ export function Sidebar(props: Props) {
           <div className="selected-card">
             <div className="title">
               {selectedKind.label}
-              {selectedIsTable ? ' table' : ''}
               {selectedStat ? ` · ${selectedStat.tapes} tapes` : ''}
             </div>
             {selectedIsTable && selectedStat && (
@@ -174,7 +184,7 @@ export function Sidebar(props: Props) {
               </div>
             )}
 
-            {selectedIsTable && (
+            {selectedTakesRack && (
               <>
                 <label className="toggle">
                   <input
@@ -191,6 +201,16 @@ export function Sidebar(props: Props) {
                     ⟲ Move rack to next edge
                     <span className="muted"> (or click it on the plan)</span>
                   </button>
+                )}
+              </>
+            )}
+
+            {selectedIsTable && (
+              <>
+                {!selectedTakesRack && (
+                  <div className="hint">
+                    A round top has no straight edge to lean a front rack on.
+                  </div>
                 )}
                 <label className="toggle">
                   <input
@@ -213,7 +233,7 @@ export function Sidebar(props: Props) {
             </button>
             <div className="hint">
               Drag to move. Keys: R rotate, D duplicate
-              {selectedIsTable ? ', F front rack' : ''}, Del delete.
+              {selectedTakesRack ? ', F front rack' : ''}, Del delete.
             </div>
           </div>
         ) : (
@@ -235,7 +255,7 @@ export function Sidebar(props: Props) {
             <div className="l">tables</div>
           </div>
           <div className="stat-cell">
-            <div className="n">{stats.usableAreaSqFt} ft²</div>
+            <div className="n">{Math.round(stats.usableAreaSqFt)} ft²</div>
             <div className="l">table surface</div>
           </div>
         </div>
